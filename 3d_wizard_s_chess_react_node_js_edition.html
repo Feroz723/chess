@@ -1,0 +1,2189 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  Castle, Bot, Users, Palette, Camera, RotateCcw, Undo2,
+  Volume2, VolumeX, Music, Shield, UserPlus, Search,
+  Database, History, Swords, CheckCircle2, X, Copy, Check,
+  Sparkles, Crown, Terminal, RefreshCw, Compass
+} from 'lucide-react';
+
+const NODE_BACKEND_SOURCE = `// ============================================================================
+// FILE: server.js (Node.js + Express + Neon Serverless PostgreSQL Backend)
+// Run: npm install express cors dotenv @neondatabase/serverless
+//      DATABASE_URL="postgresql://..." node server.js
+// ============================================================================
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import { neon } from '@neondatabase/serverless';
+
+dotenv.config();
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const sql = neon(process.env.DATABASE_URL);
+
+// 1. Provision Neon PostgreSQL Tables on Startup
+async function initDatabase() {
+  await sql\`
+    CREATE TABLE IF NOT EXISTS wizard_users (
+      username TEXT PRIMARY KEY,
+      house TEXT DEFAULT 'Alabaster Archmage',
+      passkey TEXT NOT NULL,
+      wins INT DEFAULT 0,
+      losses INT DEFAULT 0,
+      draws INT DEFAULT 0,
+      last_seen BIGINT DEFAULT 0
+    );
+  \`;
+  await sql\`
+    CREATE TABLE IF NOT EXISTS wizard_friends (
+      owner_username TEXT,
+      friend_username TEXT,
+      PRIMARY KEY (owner_username, friend_username)
+    );
+  \`;
+  await sql\`
+    CREATE TABLE IF NOT EXISTS wizard_match_history (
+      id SERIAL PRIMARY KEY,
+      player_username TEXT,
+      opponent_name TEXT,
+      result TEXT,
+      moves_san TEXT,
+      theme TEXT,
+      played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  \`;
+  console.log('Neon PostgreSQL Sanctum Schema Ready.');
+}
+initDatabase().catch(console.error);
+
+// 2. Sign Up / Login Endpoint
+app.post('/api/auth/signup', async (req, res) => {
+  try {
+    const { username, house, passkey } = req.body;
+    const now = Date.now();
+    const rows = await sql\`
+      INSERT INTO wizard_users (username, house, passkey, last_seen)
+      VALUES (\${username}, \${house}, \${passkey}, \${now})
+      ON CONFLICT (username) DO UPDATE
+      SET house = EXCLUDED.house, last_seen = EXCLUDED.last_seen
+      RETURNING username, house, wins, losses, draws, last_seen;
+    \`;
+    res.json({ user: rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. Search Wizards & Online Status (Active within last 2 minutes)
+app.get('/api/friends/search', async (req, res) => {
+  try {
+    const q = \`%\${req.query.q || ''}%\`;
+    const rows = await sql\`
+      SELECT username, house, wins, losses, draws, last_seen
+      FROM wizard_users
+      WHERE username ILIKE \${q}
+      ORDER BY last_seen DESC LIMIT 50;
+    \`;
+    const now = Date.now();
+    res.json({
+      users: rows.map(u => ({
+        ...u,
+        online: now - Number(u.last_seen) < 120000
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Add Friend by Username
+app.post('/api/friends/add', async (req, res) => {
+  try {
+    const { ownerUsername, friendUsername } = req.body;
+    await sql\`
+      INSERT INTO wizard_friends (owner_username, friend_username)
+      VALUES (\${ownerUsername}, \${friendUsername})
+      ON CONFLICT DO NOTHING;
+    \`;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 5. Record & Fetch Match History
+app.post('/api/history', async (req, res) => {
+  try {
+    const { playerUsername, opponentName, result, movesSan, theme } = req.body;
+    await sql\`
+      INSERT INTO wizard_match_history (player_username, opponent_name, result, moves_san, theme)
+      VALUES (\${playerUsername}, \${opponentName}, \${result}, \${movesSan}, \${theme});
+    \`;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => console.log(\`Wizard's Chess Node API listening on port \${PORT}\`));`;
+
+const ROYAL_THEMES = {
+  sanctum: {
+    id: 'sanctum',
+    name: 'Sanctum Cathedral',
+    shortName: 'Sanctum',
+    badgeClass: 'from-purple-500 to-amber-200',
+    whiteOrderName: 'Alabaster Order',
+    blackOrderName: 'Obsidian Order',
+    bgHex: 0x09080d,
+    roseOuterHex: 0xa855f7,
+    roseCoreHex: 0xfbbf24,
+    lightBeamHex: 0xc084fc,
+    lightSquareHex: 0xd8d0c5,
+    darkSquareHex: 0x262134,
+    whitePiece: { base: '#f7f4ee', vein1: '#d6c7b2', vein2: '#b89f72', color: 0xfaf7f2, accent: 0xf59e0b, emissive: 0x451a03 },
+    blackPiece: { base: '#14111d', vein1: '#4c1d95', vein2: '#7e22ce', color: 0x1a1528, accent: 0xa855f7, emissive: 0x581c87 }
+  },
+  imperial: {
+    id: 'imperial',
+    name: 'Imperial Throne',
+    shortName: 'Imperial',
+    badgeClass: 'from-red-600 to-yellow-400',
+    whiteOrderName: 'Sovereign Gold',
+    blackOrderName: 'Crimson Ruby',
+    bgHex: 0x12080a,
+    roseOuterHex: 0xdc2626,
+    roseCoreHex: 0xfacc15,
+    lightBeamHex: 0xf87171,
+    lightSquareHex: 0xf3e5ab,
+    darkSquareHex: 0x3b1219,
+    whitePiece: { base: '#fffbeb', vein1: '#f59e0b', vein2: '#b45309', color: 0xfef3c7, accent: 0xeab308, emissive: 0x713f12 },
+    blackPiece: { base: '#28070d', vein1: '#991b1b', vein2: '#f59e0b', color: 0x380811, accent: 0xef4444, emissive: 0x7f1d1d }
+  },
+  sapphire: {
+    id: 'sapphire',
+    name: 'Celestial Sapphire',
+    shortName: 'Sapphire',
+    badgeClass: 'from-blue-600 to-cyan-200',
+    whiteOrderName: 'Platinum Ivory',
+    blackOrderName: 'Royal Lapis',
+    bgHex: 0x060b16,
+    roseOuterHex: 0x2563eb,
+    roseCoreHex: 0x38bdf8,
+    lightBeamHex: 0x60a5fa,
+    lightSquareHex: 0xe2e8f0,
+    darkSquareHex: 0x172554,
+    whitePiece: { base: '#f8fafc', vein1: '#94a3b8', vein2: '#38bdf8', color: 0xf1f5f9, accent: 0x38bdf8, emissive: 0x0c4a6e },
+    blackPiece: { base: '#0f172a', vein1: '#1d4ed8', vein2: '#fbbf24', color: 0x172554, accent: 0x60a5fa, emissive: 0x1e3a8a }
+  },
+  emerald: {
+    id: 'emerald',
+    name: 'Emerald Basilica',
+    shortName: 'Emerald',
+    badgeClass: 'from-emerald-600 to-amber-300',
+    whiteOrderName: 'Imperial Pearl',
+    blackOrderName: 'Dark Malachite',
+    bgHex: 0x05110d,
+    roseOuterHex: 0x059669,
+    roseCoreHex: 0xfcd34d,
+    lightBeamHex: 0x34d399,
+    lightSquareHex: 0xd1fae5,
+    darkSquareHex: 0x064e3b,
+    whitePiece: { base: '#ecfdf5', vein1: '#6ee7b7', vein2: '#d97706', color: 0xf0fdf4, accent: 0xfbbf24, emissive: 0x065f46 },
+    blackPiece: { base: '#022c22', vein1: '#059669', vein2: '#10b981', color: 0x064e3b, accent: 0x10b981, emissive: 0x065f46 }
+  }
+};
+
+class CathedralAudioController {
+  constructor() {
+    this.ctx = null;
+    this.sfxEnabled = true;
+    this.musicPlaying = false;
+    this.wantsMusic = true;
+    this.stepIndex = 0;
+    this.timer = null;
+    this.masterGain = null;
+    this.chords = [
+      { root: 73.42, fifth: 110.00, notes: [146.83, 174.61, 220.00, 293.66], melody: [587.33, 659.25, 587.33, 440.00] },
+      { root: 58.27, fifth: 87.31,  notes: [116.54, 174.61, 233.08, 293.66], melody: [523.25, 587.33, 466.16, 587.33] },
+      { root: 65.41, fifth: 98.00,  notes: [130.81, 164.81, 196.00, 261.63], melody: [523.25, 659.25, 783.99, 659.25] },
+      { root: 87.31, fifth: 130.81, notes: [174.61, 220.00, 261.63, 349.23], melody: [698.46, 659.25, 587.33, 659.25] },
+      { root: 98.00, fifth: 146.83, notes: [196.00, 233.08, 293.66, 392.00], melody: [783.99, 698.46, 587.33, 523.25] },
+      { root: 55.00, fifth: 82.41,  notes: [110.00, 164.81, 220.00, 277.18], melody: [554.37, 587.33, 659.25, 554.37] },
+      { root: 73.42, fifth: 110.00, notes: [146.83, 220.00, 293.66, 349.23], melody: [587.33, 698.46, 880.00, 587.33] }
+    ];
+  }
+
+  ensureCtx() {
+    if (!this.ctx) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        this.ctx = new AudioCtx();
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.gain.setValueAtTime(0.18, this.ctx.currentTime);
+        this.masterGain.connect(this.ctx.destination);
+      }
+    }
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+  }
+
+  playSelect() {
+    if (!this.sfxEnabled) return;
+    this.ensureCtx();
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(520, now);
+    osc.frequency.exponentialRampToValueAtTime(790, now + 0.14);
+    gain.gain.setValueAtTime(0.11, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.17);
+  }
+
+  playSlide() {
+    if (!this.sfxEnabled) return;
+    this.ensureCtx();
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(112, now);
+    osc.frequency.exponentialRampToValueAtTime(66, now + 0.32);
+    gain.gain.setValueAtTime(0.17, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.36);
+  }
+
+  playShatter() {
+    if (!this.sfxEnabled) return;
+    this.ensureCtx();
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const bass = this.ctx.createOscillator();
+    const bassGain = this.ctx.createGain();
+    bass.type = 'sawtooth';
+    bass.frequency.setValueAtTime(96, now);
+    bass.frequency.exponentialRampToValueAtTime(28, now + 0.55);
+    bassGain.gain.setValueAtTime(0.3, now);
+    bassGain.gain.exponentialRampToValueAtTime(0.001, now + 0.58);
+    bass.connect(bassGain);
+    bassGain.connect(this.ctx.destination);
+    bass.start(now);
+    bass.stop(now + 0.6);
+
+    [920, 1280, 1690, 2140].forEach((freq, i) => {
+      const chime = this.ctx.createOscillator();
+      const cGain = this.ctx.createGain();
+      chime.type = 'sine';
+      chime.frequency.setValueAtTime(freq, now + i * 0.04);
+      chime.frequency.exponentialRampToValueAtTime(freq * 0.6, now + i * 0.04 + 0.26);
+      cGain.gain.setValueAtTime(0.08, now + i * 0.04);
+      cGain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.04 + 0.29);
+      chime.connect(cGain);
+      cGain.connect(this.ctx.destination);
+      chime.start(now + i * 0.04);
+      chime.stop(now + i * 0.04 + 0.3);
+    });
+  }
+
+  playCheck() {
+    if (!this.sfxEnabled) return;
+    this.ensureCtx();
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    [440, 554.37, 659.25].forEach((f, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(f, now + idx * 0.08);
+      gain.gain.setValueAtTime(0.14, now + idx * 0.08);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.42);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now + idx * 0.08);
+      osc.stop(now + idx * 0.08 + 0.45);
+    });
+  }
+
+  startMusic(onStateChange) {
+    this.wantsMusic = true;
+    this.ensureCtx();
+    if (!this.ctx || this.musicPlaying) return;
+    this.musicPlaying = true;
+    if (onStateChange) onStateChange(true);
+    this.playMeasure();
+    this.timer = setInterval(() => {
+      if (this.musicPlaying && this.ctx && this.ctx.state === 'running') {
+        this.playMeasure();
+      }
+    }, 3200);
+  }
+
+  stopMusic(onStateChange) {
+    this.wantsMusic = false;
+    this.musicPlaying = false;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    if (onStateChange) onStateChange(false);
+  }
+
+  playMeasure() {
+    if (!this.ctx || !this.musicPlaying) return;
+    const now = this.ctx.currentTime;
+    const chord = this.chords[this.stepIndex % this.chords.length];
+    this.stepIndex++;
+
+    // Cathedral Organ & Choir Swell
+    [chord.root, chord.fifth, ...chord.notes].forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator();
+      const filter = this.ctx.createBiquadFilter();
+      const gain = this.ctx.createGain();
+
+      osc.type = idx < 2 ? 'sawtooth' : 'triangle';
+      osc.frequency.setValueAtTime(freq, now);
+      osc.detune.setValueAtTime((idx % 2 === 0 ? 1 : -1) * 4.5, now);
+
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(idx < 2 ? 320 : 950, now);
+      filter.frequency.linearRampToValueAtTime(idx < 2 ? 520 : 1450, now + 1.6);
+      filter.frequency.linearRampToValueAtTime(idx < 2 ? 280 : 750, now + 3.3);
+
+      const peak = idx < 2 ? 0.13 : 0.08;
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(peak, now + 0.95);
+      gain.gain.setValueAtTime(peak, now + 2.2);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 3.35);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(now);
+      osc.stop(now + 3.4);
+    });
+
+    // Celesta Arpeggio & Heroic Timpani
+    chord.melody.forEach((noteFreq, beatIdx) => {
+      const beatTime = now + beatIdx * 0.8;
+      const bell = this.ctx.createOscillator();
+      const bellGain = this.ctx.createGain();
+      bell.type = 'sine';
+      bell.frequency.setValueAtTime(noteFreq, beatTime);
+      bellGain.gain.setValueAtTime(0.001, beatTime);
+      bellGain.gain.linearRampToValueAtTime(0.09, beatTime + 0.06);
+      bellGain.gain.exponentialRampToValueAtTime(0.0008, beatTime + 0.78);
+      bell.connect(bellGain);
+      bellGain.connect(this.masterGain);
+      bell.start(beatTime);
+      bell.stop(beatTime + 0.8);
+
+      if (beatIdx === 0 || beatIdx === 2) {
+        const timp = this.ctx.createOscillator();
+        const timpGain = this.ctx.createGain();
+        timp.type = 'sine';
+        timp.frequency.setValueAtTime(chord.root * 1.5, beatTime);
+        timp.frequency.exponentialRampToValueAtTime(chord.root * 0.65, beatTime + 0.42);
+        timpGain.gain.setValueAtTime(beatIdx === 0 ? 0.22 : 0.13, beatTime);
+        timpGain.gain.exponentialRampToValueAtTime(0.001, beatTime + 0.45);
+        timp.connect(timpGain);
+        timpGain.connect(this.masterGain);
+        timp.start(beatTime);
+        timp.stop(beatTime + 0.46);
+      }
+    });
+  }
+}
+
+const audioCtrl = new CathedralAudioController();
+
+function loadExternalScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) {
+      resolve();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = (err) => reject(err);
+    document.head.appendChild(script);
+  });
+}
+
+export default function App() {
+  const mountRef = useRef(null);
+  const [scriptsReady, setScriptsReady] = useState(false);
+
+  // Game & Navigation State
+  const [gameMode, setGameMode] = useState('ai'); // 'ai' | '2p'
+  const [royalTheme, setRoyalTheme] = useState('sanctum');
+  const [camPreset, setCamPreset] = useState('white');
+  const [sfxEnabled, setSfxEnabled] = useState(true);
+  const [musicPlaying, setMusicPlaying] = useState(false);
+
+  // Chess Telemetry State
+  const [turnColor, setTurnColor] = useState('w');
+  const [inCheck, setInCheck] = useState(false);
+  const [gameOverText, setGameOverText] = useState('');
+  const [subStatusText, setSubStatusText] = useState('Alabaster Order • Select a piece to command');
+  const [moveHistory, setMoveHistory] = useState([]);
+  const [capturedByWhite, setCapturedByWhite] = useState([]);
+  const [capturedByBlack, setCapturedByBlack] = useState([]);
+  const [pendingPromotion, setPendingPromotion] = useState(null);
+
+  // Node.js + Neon PostgreSQL Database & Sanctum Guild State
+  const [sanctumModalOpen, setSanctumModalOpen] = useState(false);
+  const [modalTab, setModalTab] = useState('fellowship'); // 'fellowship' | 'node_backend'
+  const [neonDbUrl, setNeonDbUrl] = useState(() => localStorage.getItem('wizards_chess_neon_url') || '');
+  const [nodeApiUrl, setNodeApiUrl] = useState(() => localStorage.getItem('wizards_chess_node_api') || 'http://localhost:4000');
+  const [dbStatusMsg, setDbStatusMsg] = useState('Hybrid Node.js / Neon SQL / Local Vault Ready');
+  const [isNeonConnected, setIsNeonConnected] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
+
+  // User Profile, Friends & Match History State
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('wizards_react_user_v1'));
+      if (saved) return saved;
+    } catch (e) {}
+    return { username: 'Guest_Initiate', house: 'Alabaster Archmage', wins: 0, losses: 0, draws: 0, online: true };
+  });
+
+  const [wizardsDirectory, setWizardsDirectory] = useState(() => {
+    const now = Date.now();
+    return [
+      { username: 'Morgana_LeFay', house: 'Obsidian Sovereign', wins: 42, losses: 11, draws: 4, online: true, isFriend: true, lastSeen: now },
+      { username: 'Cedric_Storm', house: 'Imperial Grandmaster', wins: 29, losses: 14, draws: 3, online: true, isFriend: true, lastSeen: now },
+      { username: 'Aurelia_Crown', house: 'Sapphire Seer', wins: 19, losses: 8, draws: 5, online: false, isFriend: true, lastSeen: now - 600000 },
+      { username: 'Balthazar_Rune', house: 'Emerald Warden', wins: 34, losses: 19, draws: 2, online: true, isFriend: false, lastSeen: now },
+      { username: 'Seraphina_Vale', house: 'Alabaster Archmage', wins: 51, losses: 9, draws: 6, online: true, isFriend: false, lastSeen: now },
+      { username: 'Draco_Obsidian', house: 'Obsidian Sovereign', wins: 16, losses: 15, draws: 1, online: false, isFriend: false, lastSeen: now - 900000 }
+    ];
+  });
+
+  const [friendSearchQuery, setFriendSearchQuery] = useState('');
+  const [activeFriendOpponent, setActiveFriendOpponent] = useState(null);
+  const [matchHistoryVault, setMatchHistoryVault] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('wizards_react_history_v1'));
+      if (Array.isArray(saved)) return saved;
+    } catch (e) {}
+    return [];
+  });
+
+  // Form Inputs for Sign Up
+  const [signupUsername, setSignupUsername] = useState('');
+  const [signupHouse, setSignupHouse] = useState('Alabaster Archmage');
+  const [signupPasskey, setSignupPasskey] = useState('');
+
+  // Mutable 3D & Chess Engine Refs
+  const engineRef = useRef({
+    chess: null,
+    scene: null,
+    camera: null,
+    renderer: null,
+    piecesGroup: null,
+    pieceMeshes: {},
+    squareMeshes: {},
+    highlightMeshes: {},
+    materials: {},
+    roseOuter: null,
+    roseCore: null,
+    lightCone: null,
+    rimLightWhite: null,
+    rimLightBlack: null,
+    selectedSquare: null,
+    legalMoves: [],
+    isAnimating: false,
+    camTheta: 0,
+    camPhi: 0.88,
+    camRadius: 14.5,
+    targetTheta: 0,
+    targetPhi: 0.88,
+    targetRadius: 14.5,
+    autoOrbit: false,
+    screenShake: 0,
+    activeFragments: [],
+    rebuildPieces: null,
+    applyTheme: null,
+    executeMove3D: null,
+    clearHighlights: null
+  });
+
+  const executeNeonOrNodeSQL = useCallback(async (query, params = []) => {
+    if (!neonDbUrl) return null;
+    try {
+      const parsed = new URL(neonDbUrl.replace(/^postgres(ql)?:\/\//, 'https://'));
+      const endpoint = `https://${parsed.hostname}/sql`;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Neon-Connection-String': neonDbUrl
+        },
+        body: JSON.stringify({ query, params })
+      });
+      if (!res.ok) throw new Error(`Neon HTTP ${res.status}`);
+      setIsNeonConnected(true);
+      return await res.json();
+    } catch (e) {
+      setIsNeonConnected(false);
+      return null;
+    }
+  }, [neonDbUrl]);
+
+  const recordCompletedMatchToDB = useCallback(async (resultLabel, opponentName, movesArray, themeName) => {
+    setCurrentUser(prev => {
+      const updated = {
+        ...prev,
+        wins: resultLabel === 'VICTORY' ? prev.wins + 1 : prev.wins,
+        losses: resultLabel === 'DEFEAT' ? prev.losses + 1 : prev.losses,
+        draws: resultLabel === 'DRAW' ? prev.draws + 1 : prev.draws
+      };
+      localStorage.setItem('wizards_react_user_v1', JSON.stringify(updated));
+      return updated;
+    });
+
+    const entry = {
+      opponent: opponentName,
+      result: resultLabel,
+      moves: movesArray.length ? movesArray.slice(-10).join(' ') : 'Opening Phase',
+      theme: themeName,
+      date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setMatchHistoryVault(prev => {
+      const next = [entry, ...prev].slice(0, 35);
+      localStorage.setItem('wizards_react_history_v1', JSON.stringify(next));
+      return next;
+    });
+
+    if (neonDbUrl) {
+      await executeNeonOrNodeSQL(
+        `INSERT INTO wizard_match_history (player_username, opponent_name, result, moves_san, theme, played_at)
+         VALUES ($1, $2, $3, $4, $5, $6);`,
+        [currentUser.username, entry.opponent, entry.result, entry.moves, entry.theme, entry.date]
+      );
+    }
+  }, [currentUser.username, executeNeonOrNodeSQL, neonDbUrl]);
+
+  useEffect(() => {
+    let mounted = true;
+    Promise.all([
+      loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'),
+      loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js')
+    ]).then(() => {
+      if (mounted) setScriptsReady(true);
+    });
+
+    const unlockAudio = () => {
+      if (audioCtrl.wantsMusic && !audioCtrl.musicPlaying) {
+        audioCtrl.startMusic(setMusicPlaying);
+      }
+    };
+    window.addEventListener('pointerdown', unlockAudio, { passive: true });
+    window.addEventListener('keydown', unlockAudio, { passive: true });
+
+    // Live online presence heartbeat simulation every 15s
+    const presenceInterval = setInterval(() => {
+      setWizardsDirectory(prev =>
+        prev.map(w => (Math.random() < 0.14 ? { ...w, online: !w.online } : w))
+      );
+    }, 15000);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+      clearInterval(presenceInterval);
+    };
+  }, []);
+
+  const syncHudFromChess = useCallback(() => {
+    const chess = engineRef.current.chess;
+    if (!chess) return;
+
+    const turn = chess.turn();
+    const themeObj = ROYAL_THEMES[royalTheme] || ROYAL_THEMES.sanctum;
+    setTurnColor(turn);
+    setInCheck(chess.in_check());
+
+    if (chess.in_checkmate()) {
+      const winner = turn === 'w' ? 'Black' : 'White';
+      setGameOverText('CHECKMATE');
+      setSubStatusText(`${winner} triumphs in the Cathedral Sanctum!`);
+    } else if (chess.in_draw() || chess.in_stalemate()) {
+      setGameOverText('DRAW');
+      setSubStatusText('The cathedral battle concludes in a draw');
+    } else {
+      setGameOverText('');
+      if (turn === 'w') {
+        setSubStatusText(`${themeObj.whiteOrderName} • Select a piece to command`);
+      } else {
+        const opp = activeFriendOpponent || (gameMode === 'ai' ? `${themeObj.blackOrderName} AI` : 'Black Challenger');
+        setSubStatusText(`${opp} • Commanding dark sculptures`);
+      }
+    }
+
+    const verboseHistory = chess.history({ verbose: true });
+    setMoveHistory(verboseHistory.map((m, i) => ({ num: i + 1, san: m.san })));
+
+    const symbols = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛' };
+    const capW = [];
+    const capB = [];
+    verboseHistory.forEach(m => {
+      if (m.captured) {
+        if (m.color === 'w') capB.push(symbols[m.captured] || '♟');
+        else capW.push(symbols[m.captured] || '♟');
+      }
+    });
+    setCapturedByWhite(capW);
+    setCapturedByBlack(capB);
+  }, [activeFriendOpponent, gameMode, royalTheme]);
+
+  useEffect(() => {
+    if (!scriptsReady || !mountRef.current || !window.THREE || !window.Chess) return;
+
+    const THREE = window.THREE;
+    const container = mountRef.current;
+    const eng = engineRef.current;
+    eng.chess = new window.Chess();
+
+    // 1. Scene, Camera & WebGLRenderer
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x09080d);
+    scene.fog = new THREE.FogExp2(0x09080d, 0.024);
+    eng.scene = scene;
+
+    const camera = new THREE.PerspectiveCamera(42, container.clientWidth / container.clientHeight, 0.1, 150);
+    eng.camera = camera;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.18;
+    container.innerHTML = '';
+    container.appendChild(renderer.domElement);
+    eng.renderer = renderer;
+
+    // 2. Cathedral Lighting
+    scene.add(new THREE.AmbientLight(0x9b8ec7, 0.68));
+    const mainSpot = new THREE.SpotLight(0xfff4dc, 2.2);
+    mainSpot.position.set(6, 18, 8);
+    mainSpot.angle = Math.PI / 3.2;
+    mainSpot.penumbra = 0.65;
+    mainSpot.castShadow = true;
+    mainSpot.shadow.mapSize.width = 2048;
+    mainSpot.shadow.mapSize.height = 2048;
+    mainSpot.shadow.bias = -0.0005;
+    scene.add(mainSpot);
+
+    const rimWhite = new THREE.DirectionalLight(0xfde68a, 0.9);
+    rimWhite.position.set(0, 9, 13);
+    scene.add(rimWhite);
+    eng.rimLightWhite = rimWhite;
+
+    const rimBlack = new THREE.DirectionalLight(0xc084fc, 1.05);
+    rimBlack.position.set(0, 9, -13);
+    scene.add(rimBlack);
+    eng.rimLightBlack = rimBlack;
+
+    // 3. Gothic Cathedral Architecture
+    const cathedralGroup = new THREE.Group();
+    scene.add(cathedralGroup);
+    const gothicStoneMat = new THREE.MeshStandardMaterial({ color: 0x1a1724, roughness: 0.85, metalness: 0.15 });
+
+    const altarMesh = new THREE.Mesh(new THREE.BoxGeometry(10.6, 1.2, 10.6), gothicStoneMat);
+    altarMesh.position.y = -0.75;
+    altarMesh.receiveShadow = true;
+    cathedralGroup.add(altarMesh);
+
+    const pillarGeo = new THREE.CylinderGeometry(0.55, 0.7, 22, 12);
+    [[-11, -11], [11, -11], [-11, 11], [11, 11], [-11, 0], [11, 0], [0, -13]].forEach(([px, pz]) => {
+      const pillar = new THREE.Mesh(pillarGeo, gothicStoneMat);
+      pillar.position.set(px, 8, pz);
+      pillar.castShadow = true;
+      pillar.receiveShadow = true;
+      cathedralGroup.add(pillar);
+    });
+
+    const roseGroup = new THREE.Group();
+    roseGroup.position.set(0, 9.5, -18);
+    cathedralGroup.add(roseGroup);
+
+    const roseOuter = new THREE.Mesh(
+      new THREE.RingGeometry(2.6, 4.2, 24),
+      new THREE.MeshBasicMaterial({ color: 0xa855f7, side: THREE.DoubleSide, transparent: true, opacity: 0.65 })
+    );
+    roseGroup.add(roseOuter);
+    eng.roseOuter = roseOuter;
+
+    const roseCore = new THREE.Mesh(
+      new THREE.CircleGeometry(2.2, 24),
+      new THREE.MeshBasicMaterial({ color: 0xfbbf24, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+    );
+    roseGroup.add(roseCore);
+    eng.roseCore = roseCore;
+
+    const lightCone = new THREE.Mesh(
+      new THREE.ConeGeometry(8.5, 22, 24, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xc084fc,
+        transparent: true,
+        opacity: 0.055,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      })
+    );
+    lightCone.position.set(0, 5.2, -7.5);
+    lightCone.rotation.x = Math.PI / 3.1;
+    cathedralGroup.add(lightCone);
+    eng.lightCone = lightCone;
+
+    // Floating Cathedral Embers
+    const emberCount = 110;
+    const emberGeo = new THREE.BufferGeometry();
+    const emberPositions = new Float32Array(emberCount * 3);
+    for (let i = 0; i < emberCount; i++) {
+      emberPositions[i * 3] = (Math.random() - 0.5) * 24;
+      emberPositions[i * 3 + 1] = Math.random() * 14 + 0.3;
+      emberPositions[i * 3 + 2] = (Math.random() - 0.5) * 24;
+    }
+    emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPositions, 3));
+    const emberParticles = new THREE.Points(
+      emberGeo,
+      new THREE.PointsMaterial({ color: 0xfde68a, size: 0.11, transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending })
+    );
+    scene.add(emberParticles);
+
+    // 4. Procedural Stone Vein Texture & Materials
+    function createStoneTexture(baseHex, vein1, vein2) {
+      const c = document.createElement('canvas');
+      c.width = 256;
+      c.height = 256;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = baseHex;
+      ctx.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 600; i++) {
+        ctx.fillStyle = i % 2 === 0 ? vein1 : vein2;
+        ctx.globalAlpha = Math.random() * 0.12;
+        ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+      }
+      for (let v = 0; v < 14; v++) {
+        ctx.beginPath();
+        let x = Math.random() * 256;
+        let y = 0;
+        ctx.moveTo(x, y);
+        while (y < 256) {
+          y += 14 + Math.random() * 16;
+          x += (Math.random() - 0.5) * 34;
+          ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = v % 3 === 0 ? vein2 : vein1;
+        ctx.lineWidth = 0.8 + Math.random() * 1.8;
+        ctx.globalAlpha = 0.25 + Math.random() * 0.22;
+        ctx.stroke();
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      return tex;
+    }
+
+    const mats = {
+      whiteMain: new THREE.MeshPhysicalMaterial({ color: 0xfaf7f2, roughness: 0.18, metalness: 0.08, clearcoat: 0.85, clearcoatRoughness: 0.12 }),
+      whiteAccent: new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.22, metalness: 0.88, emissive: 0x451a03, emissiveIntensity: 0.45 }),
+      blackMain: new THREE.MeshPhysicalMaterial({ color: 0x1a1528, roughness: 0.14, metalness: 0.25, clearcoat: 1.0, clearcoatRoughness: 0.08 }),
+      blackAccent: new THREE.MeshStandardMaterial({ color: 0xa855f7, roughness: 0.25, metalness: 0.75, emissive: 0x581c87, emissiveIntensity: 0.85 }),
+      lightSquare: new THREE.MeshPhysicalMaterial({ color: 0xd8d0c5, roughness: 0.25, metalness: 0.05, clearcoat: 0.5 }),
+      darkSquare: new THREE.MeshPhysicalMaterial({ color: 0x262134, roughness: 0.22, metalness: 0.15, clearcoat: 0.65 })
+    };
+    eng.materials = mats;
+
+    // 5. Build 64-Square Board
+    const boardGroup = new THREE.Group();
+    scene.add(boardGroup);
+    const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+    const squareToWorld = (sq) => {
+      const f = files.indexOf(sq[0]);
+      const r = parseInt(sq[1], 10) - 1;
+      return new THREE.Vector3(f - 3.5, 0, 3.5 - r);
+    };
+
+    const tileGeo = new THREE.BoxGeometry(0.98, 0.24, 0.98);
+    for (let r = 0; r < 8; r++) {
+      for (let f = 0; f < 8; f++) {
+        const sqName = `${files[f]}${r + 1}`;
+        const isLight = (f + r) % 2 === 1;
+        const tile = new THREE.Mesh(tileGeo, isLight ? mats.lightSquare : mats.darkSquare);
+        const pos = squareToWorld(sqName);
+        tile.position.set(pos.x, -0.12, pos.z);
+        tile.receiveShadow = true;
+        tile.userData = { square: sqName };
+        boardGroup.add(tile);
+        eng.squareMeshes[sqName] = tile;
+
+        const ring = new THREE.Mesh(
+          new THREE.RingGeometry(0.26, 0.40, 24),
+          new THREE.MeshBasicMaterial({ color: 0xfbbf24, side: THREE.DoubleSide, transparent: true, opacity: 0.0 })
+        );
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(pos.x, 0.015, pos.z);
+        boardGroup.add(ring);
+        eng.highlightMeshes[sqName] = ring;
+      }
+    }
+
+    const borderFrame = new THREE.Mesh(
+      new THREE.BoxGeometry(8.9, 0.32, 8.9),
+      new THREE.MeshStandardMaterial({ color: 0x2b2338, roughness: 0.5, metalness: 0.45 })
+    );
+    borderFrame.position.y = -0.18;
+    borderFrame.receiveShadow = true;
+    boardGroup.add(borderFrame);
+
+    // 6. Sculpted 3D Chess Piece Generator
+    const piecesGroup = new THREE.Group();
+    scene.add(piecesGroup);
+    eng.piecesGroup = piecesGroup;
+
+    function createLathe(pts, segs = 24) {
+      const curve = new THREE.SplineCurve(pts.map(([x, y]) => new THREE.Vector2(x, y)));
+      return new THREE.LatheGeometry(curve.getPoints(26), segs);
+    }
+
+    function buildPieceMesh(type, color) {
+      const group = new THREE.Group();
+      const mainMat = color === 'w' ? mats.whiteMain : mats.blackMain;
+      const accentMat = color === 'w' ? mats.whiteAccent : mats.blackAccent;
+
+      const base = new THREE.Mesh(
+        createLathe([[0, 0], [0.37, 0], [0.38, 0.06], [0.33, 0.12], [0.35, 0.16], [0.27, 0.22], [0.22, 0.30]], 26),
+        mainMat
+      );
+      base.castShadow = true;
+      base.receiveShadow = true;
+      group.add(base);
+
+      const collar = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.022, 12, 26), accentMat);
+      collar.rotation.x = Math.PI / 2;
+      collar.position.y = 0.21;
+      group.add(collar);
+
+      if (type === 'p') {
+        const body = new THREE.Mesh(createLathe([[0.22, 0.28], [0.16, 0.52], [0.21, 0.65], [0.13, 0.72], [0, 0.74]], 22), mainMat);
+        body.castShadow = true;
+        group.add(body);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 20, 20), mainMat);
+        head.position.y = 0.88;
+        head.castShadow = true;
+        group.add(head);
+        const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.25, 0.05, 20), accentMat);
+        brim.position.y = 0.94;
+        group.add(brim);
+        const shield = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.34, 0.05), accentMat);
+        shield.position.set(0, 0.58, color === 'w' ? -0.19 : 0.19);
+        group.add(shield);
+      } else if (type === 'r') {
+        const tower = new THREE.Mesh(createLathe([[0.24, 0.28], [0.21, 0.65], [0.20, 0.98], [0.26, 1.08], [0.26, 1.22], [0, 1.22]], 24), mainMat);
+        tower.castShadow = true;
+        group.add(tower);
+        for (let i = 0; i < 6; i++) {
+          const ang = (i / 6) * Math.PI * 2;
+          const merlon = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.15, 0.10), accentMat);
+          merlon.position.set(Math.cos(ang) * 0.21, 1.28, Math.sin(ang) * 0.21);
+          merlon.rotation.y = -ang;
+          group.add(merlon);
+        }
+      } else if (type === 'n') {
+        const dir = color === 'w' ? -1 : 1;
+        const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.23, 0.52, 20), mainMat);
+        chest.position.y = 0.52;
+        chest.castShadow = true;
+        group.add(chest);
+        const neck = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.55, 0.32), mainMat);
+        neck.position.set(0, 0.88, dir * 0.06);
+        neck.rotation.x = dir * 0.32;
+        neck.castShadow = true;
+        group.add(neck);
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.24, 0.46), mainMat);
+        head.position.set(0, 1.12, dir * 0.18);
+        head.rotation.x = dir * 0.45;
+        group.add(head);
+        const chamfron = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.10, 0.42), accentMat);
+        chamfron.position.set(0, 1.19, dir * 0.21);
+        chamfron.rotation.x = dir * 0.45;
+        group.add(chamfron);
+      } else if (type === 'b') {
+        const body = new THREE.Mesh(createLathe([[0.23, 0.28], [0.16, 0.68], [0.21, 0.86], [0.15, 0.96], [0.22, 1.16], [0.12, 1.38], [0, 1.44]], 24), mainMat);
+        body.castShadow = true;
+        group.add(body);
+        const band = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.025, 10, 24), accentMat);
+        band.rotation.x = Math.PI / 2;
+        band.position.y = 1.02;
+        group.add(band);
+        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.065, 16, 16), accentMat);
+        orb.position.y = 1.48;
+        group.add(orb);
+      } else if (type === 'q') {
+        const body = new THREE.Mesh(createLathe([[0.25, 0.28], [0.18, 0.72], [0.15, 1.05], [0.24, 1.24], [0.22, 1.42], [0.26, 1.54], [0, 1.52]], 26), mainMat);
+        body.castShadow = true;
+        group.add(body);
+        const crown = new THREE.Mesh(new THREE.TorusGeometry(0.23, 0.028, 12, 26), accentMat);
+        crown.rotation.x = Math.PI / 2;
+        crown.position.y = 1.53;
+        group.add(crown);
+        for (let i = 0; i < 10; i++) {
+          const ang = (i / 10) * Math.PI * 2;
+          const spike = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.14, 8), accentMat);
+          spike.position.set(Math.cos(ang) * 0.22, 1.61, Math.sin(ang) * 0.22);
+          group.add(spike);
+        }
+      } else if (type === 'k') {
+        const body = new THREE.Mesh(createLathe([[0.26, 0.28], [0.20, 0.78], [0.17, 1.15], [0.26, 1.34], [0.23, 1.56], [0.27, 1.68], [0, 1.68]], 26), mainMat);
+        body.castShadow = true;
+        group.add(body);
+        const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.24, 0.12, 24), accentMat);
+        crown.position.y = 1.68;
+        group.add(crown);
+        const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.28, 0.07), accentMat);
+        crossV.position.y = 1.88;
+        group.add(crossV);
+        const crossH = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.07, 0.07), accentMat);
+        crossH.position.y = 1.90;
+        group.add(crossH);
+      }
+
+      group.userData = { type, color, phaseOffset: Math.random() * Math.PI * 2 };
+      return group;
+    }
+
+    eng.rebuildPieces = () => {
+      while (piecesGroup.children.length > 0) {
+        piecesGroup.remove(piecesGroup.children[0]);
+      }
+      eng.pieceMeshes = {};
+      const board = eng.chess.board();
+      for (let r = 0; r < 8; r++) {
+        for (let f = 0; f < 8; f++) {
+          const p = board[r][f];
+          if (p) {
+            const sq = `${files[f]}${8 - r}`;
+            const mesh = buildPieceMesh(p.type, p.color);
+            const pos = squareToWorld(sq);
+            mesh.position.set(pos.x, 0, pos.z);
+            mesh.userData.square = sq;
+            piecesGroup.add(mesh);
+            eng.pieceMeshes[sq] = mesh;
+          }
+        }
+      }
+    };
+
+    eng.applyTheme = (themeKey) => {
+      const t = ROYAL_THEMES[themeKey] || ROYAL_THEMES.sanctum;
+      scene.background.setHex(t.bgHex);
+      scene.fog.color.setHex(t.bgHex);
+      roseOuter.material.color.setHex(t.roseOuterHex);
+      roseCore.material.color.setHex(t.roseCoreHex);
+      lightCone.material.color.setHex(t.lightBeamHex);
+      rimBlack.color.setHex(t.roseOuterHex);
+      rimWhite.color.setHex(t.roseCoreHex);
+      mats.lightSquare.color.setHex(t.lightSquareHex);
+      mats.darkSquare.color.setHex(t.darkSquareHex);
+
+      mats.whiteMain.map = createStoneTexture(t.whitePiece.base, t.whitePiece.vein1, t.whitePiece.vein2);
+      mats.whiteMain.color.setHex(t.whitePiece.color);
+      mats.whiteMain.needsUpdate = true;
+      mats.whiteAccent.color.setHex(t.whitePiece.accent);
+      mats.whiteAccent.emissive.setHex(t.whitePiece.emissive);
+
+      mats.blackMain.map = createStoneTexture(t.blackPiece.base, t.blackPiece.vein1, t.blackPiece.vein2);
+      mats.blackMain.color.setHex(t.blackPiece.color);
+      mats.blackMain.needsUpdate = true;
+      mats.blackAccent.color.setHex(t.blackPiece.accent);
+      mats.blackAccent.emissive.setHex(t.blackPiece.emissive);
+    };
+
+    eng.clearHighlights = () => {
+      Object.values(eng.highlightMeshes).forEach(r => { r.material.opacity = 0; });
+    };
+
+    function spawnShatter(worldPos, victimColor) {
+      const mat = victimColor === 'w' ? mats.whiteMain : mats.blackMain;
+      const accent = victimColor === 'w' ? mats.whiteAccent : mats.blackAccent;
+      for (let i = 0; i < 24; i++) {
+        const shard = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(0.07 + Math.random() * 0.1, 0),
+          i % 4 === 0 ? accent : mat
+        );
+        shard.position.set(
+          worldPos.x + (Math.random() - 0.5) * 0.35,
+          0.35 + Math.random() * 0.85,
+          worldPos.z + (Math.random() - 0.5) * 0.35
+        );
+        shard.castShadow = true;
+        scene.add(shard);
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 1.6 + Math.random() * 3.4;
+        eng.activeFragments.push({
+          mesh: shard,
+          vel: new THREE.Vector3(Math.cos(ang) * spd, 2.5 + Math.random() * 4, Math.sin(ang) * spd),
+          rotVel: new THREE.Vector3((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10),
+          life: 1.0
+        });
+      }
+      eng.screenShake = 0.32;
+    }
+
+    eng.executeMove3D = (moveObj, onDone) => {
+      eng.isAnimating = true;
+      const attacker = eng.pieceMeshes[moveObj.from];
+      const target = eng.pieceMeshes[moveObj.to];
+      if (!attacker) {
+        eng.rebuildPieces();
+        eng.isAnimating = false;
+        if (onDone) onDone();
+        return;
+      }
+
+      const startPos = squareToWorld(moveObj.from);
+      const endPos = squareToWorld(moveObj.to);
+      const isCapture = Boolean(moveObj.captured);
+      const isKnight = moveObj.piece === 'n';
+      const duration = isCapture ? 560 : 410;
+      const startTime = performance.now();
+      let shattered = false;
+
+      audioCtrl.playSlide();
+
+      function step(now) {
+        const t = Math.min((now - startTime) / duration, 1);
+        const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        attacker.position.x = THREE.MathUtils.lerp(startPos.x, endPos.x, ease);
+        attacker.position.z = THREE.MathUtils.lerp(startPos.z, endPos.z, ease);
+        attacker.position.y = Math.sin(t * Math.PI) * (isKnight ? 1.4 : isCapture ? 0.55 : 0.15);
+
+        if (isCapture && t >= 0.72 && !shattered) {
+          shattered = true;
+          audioCtrl.playShatter();
+          const victimColor = moveObj.color === 'w' ? 'b' : 'w';
+          if (target) {
+            spawnShatter(endPos, victimColor);
+            piecesGroup.remove(target);
+          }
+        }
+
+        if (t < 1) {
+          requestAnimationFrame(step);
+        } else {
+          eng.rebuildPieces();
+          eng.isAnimating = false;
+          if (eng.chess.in_check()) audioCtrl.playCheck();
+          if (onDone) onDone();
+        }
+      }
+      requestAnimationFrame(step);
+    };
+
+    eng.applyTheme('sanctum');
+    eng.rebuildPieces();
+
+    // 7. Animation Loop
+    const clock = new THREE.Clock();
+    let reqId;
+    const animateLoop = () => {
+      reqId = requestAnimationFrame(animateLoop);
+      const dt = Math.min(clock.getDelta(), 0.1);
+      const elapsed = clock.getElapsedTime();
+
+      if (!eng.isAnimating) {
+        Object.values(eng.pieceMeshes).forEach(m => {
+          m.position.y = Math.sin(elapsed * 2.1 + (m.userData.phaseOffset || 0)) * 0.024;
+        });
+      }
+
+      for (let i = eng.activeFragments.length - 1; i >= 0; i--) {
+        const f = eng.activeFragments[i];
+        f.vel.y -= 11.5 * dt;
+        f.mesh.position.addScaledVector(f.vel, dt);
+        f.mesh.rotation.x += f.rotVel.x * dt;
+        f.mesh.rotation.y += f.rotVel.y * dt;
+        if (f.mesh.position.y < 0.05) {
+          f.mesh.position.y = 0.05;
+          f.vel.y *= -0.42;
+          f.vel.x *= 0.72;
+          f.vel.z *= 0.72;
+        }
+        f.life -= dt * 0.55;
+        f.mesh.scale.setScalar(Math.max(f.life, 0.01));
+        if (f.life <= 0) {
+          scene.remove(f.mesh);
+          eng.activeFragments.splice(i, 1);
+        }
+      }
+
+      const posAttr = emberGeo.attributes.position;
+      for (let i = 0; i < emberCount; i++) {
+        let y = posAttr.getY(i) + dt * 0.42;
+        if (y > 14.5) y = 0.2;
+        posAttr.setY(i, y);
+      }
+      posAttr.needsUpdate = true;
+
+      if (eng.autoOrbit) eng.targetTheta += dt * 0.22;
+      eng.camTheta = THREE.MathUtils.lerp(eng.camTheta, eng.targetTheta, 0.08);
+      eng.camPhi = THREE.MathUtils.lerp(eng.camPhi, eng.targetPhi, 0.08);
+      eng.camRadius = THREE.MathUtils.lerp(eng.camRadius, eng.targetRadius, 0.08);
+
+      let sx = 0, sy = 0, sz = 0;
+      if (eng.screenShake > 0.005) {
+        sx = (Math.random() - 0.5) * eng.screenShake;
+        sy = (Math.random() - 0.5) * eng.screenShake;
+        sz = (Math.random() - 0.5) * eng.screenShake;
+        eng.screenShake *= 0.88;
+      }
+
+      camera.position.set(
+        eng.camRadius * Math.sin(eng.camPhi) * Math.sin(eng.camTheta) + sx,
+        eng.camRadius * Math.cos(eng.camPhi) + sy,
+        eng.camRadius * Math.sin(eng.camPhi) * Math.cos(eng.camTheta) + sz
+      );
+      camera.lookAt(0, 0.4, 0);
+      renderer.render(scene, camera);
+    };
+    animateLoop();
+
+    const onResize = () => {
+      if (!container) return;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      camera.aspect = w / h;
+      camera.fov = w < 640 ? 54 : w < 1024 ? 46 : 42;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    };
+    window.addEventListener('resize', onResize);
+    onResize();
+
+    return () => {
+      cancelAnimationFrame(reqId);
+      window.removeEventListener('resize', onResize);
+      renderer.dispose();
+    };
+  }, [scriptsReady]);
+
+  const triggerAiTurnIfNeeded = useCallback(() => {
+    const eng = engineRef.current;
+    if (!eng.chess || eng.chess.game_over() || eng.chess.turn() !== 'b') return;
+
+    setTimeout(() => {
+      if (!eng.chess || eng.chess.game_over() || eng.chess.turn() !== 'b') return;
+      const moves = eng.chess.moves({ verbose: true });
+      if (!moves.length) return;
+
+      const vals = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
+      let bestMove = moves[0];
+      let bestScore = -Infinity;
+
+      moves.forEach(m => {
+        eng.chess.move(m);
+        let score = (Math.random() * 16 - 8) + (m.captured ? 48 : 0) + (eng.chess.in_check() ? 35 : 0);
+        const board = eng.chess.board();
+        for (let r = 0; r < 8; r++) {
+          for (let f = 0; f < 8; f++) {
+            const p = board[r][f];
+            if (p) {
+              const v = vals[p.type];
+              score += p.color === 'b' ? v : -v;
+            }
+          }
+        }
+        eng.chess.undo();
+        if (score > bestScore) {
+          bestScore = score;
+          bestMove = m;
+        }
+      });
+
+      const executed = eng.chess.move(bestMove);
+      if (executed) {
+        eng.clearHighlights();
+        eng.executeMove3D(executed, () => {
+          syncHudFromChess();
+          if (eng.chess.game_over()) {
+            const resultLabel = eng.chess.in_checkmate() ? (eng.chess.turn() === 'b' ? 'VICTORY' : 'DEFEAT') : 'DRAW';
+            recordCompletedMatchToDB(
+              resultLabel,
+              activeFriendOpponent || `${ROYAL_THEMES[royalTheme].blackOrderName} AI`,
+              eng.chess.history(),
+              ROYAL_THEMES[royalTheme].name
+            );
+          }
+        });
+      }
+    }, 450);
+  }, [activeFriendOpponent, recordCompletedMatchToDB, royalTheme, syncHudFromChess]);
+
+  const handleSquareTap = useCallback((sq) => {
+    const eng = engineRef.current;
+    if (!eng.chess || eng.isAnimating || eng.chess.game_over()) return;
+    if (gameMode === 'ai' && eng.chess.turn() !== 'w') return;
+
+    const chosenMove = eng.legalMoves.find(m => m.to === sq);
+    if (eng.selectedSquare && chosenMove) {
+      const pieceOnFrom = eng.chess.get(eng.selectedSquare);
+      const isPromo = pieceOnFrom && pieceOnFrom.type === 'p' && (sq[1] === '8' || sq[1] === '1');
+      if (isPromo) {
+        setPendingPromotion({ from: eng.selectedSquare, to: sq });
+        return;
+      }
+
+      const executed = eng.chess.move({ from: eng.selectedSquare, to: sq, promotion: 'q' });
+      eng.selectedSquare = null;
+      eng.legalMoves = [];
+      eng.clearHighlights();
+      if (executed) {
+        eng.executeMove3D(executed, () => {
+          syncHudFromChess();
+          if (eng.chess.game_over()) {
+            const resultLabel = eng.chess.in_checkmate() ? (eng.chess.turn() === 'b' ? 'VICTORY' : 'DEFEAT') : 'DRAW';
+            recordCompletedMatchToDB(
+              resultLabel,
+              activeFriendOpponent || (gameMode === 'ai' ? `${ROYAL_THEMES[royalTheme].blackOrderName} AI` : 'Local Challenger'),
+              eng.chess.history(),
+              ROYAL_THEMES[royalTheme].name
+            );
+          } else if (gameMode === 'ai') {
+            triggerAiTurnIfNeeded();
+          }
+        });
+      }
+      return;
+    }
+
+    const piece = eng.chess.get(sq);
+    if (piece && piece.color === eng.chess.turn()) {
+      eng.selectedSquare = sq;
+      eng.legalMoves = eng.chess.moves({ square: sq, verbose: true });
+      audioCtrl.playSelect();
+      eng.clearHighlights();
+      if (eng.highlightMeshes[sq]) {
+        eng.highlightMeshes[sq].material.color.setHex(0xfbbf24);
+        eng.highlightMeshes[sq].material.opacity = 0.88;
+      }
+      eng.legalMoves.forEach(m => {
+        const ring = eng.highlightMeshes[m.to];
+        if (ring) {
+          ring.material.color.setHex(m.captured ? 0xef4444 : 0x34d399);
+          ring.material.opacity = 0.84;
+        }
+      });
+    } else {
+      eng.selectedSquare = null;
+      eng.legalMoves = [];
+      eng.clearHighlights();
+    }
+  }, [activeFriendOpponent, gameMode, recordCompletedMatchToDB, royalTheme, syncHudFromChess, triggerAiTurnIfNeeded]);
+
+  // Pointer & Wheel Handlers for 3D Canvas
+  const pointerRef = useRef({ down: false, startX: 0, startY: 0, prevX: 0, prevY: 0 });
+
+  const handlePointerDown = (e) => {
+    pointerRef.current = { down: true, startX: e.clientX, startY: e.clientY, prevX: e.clientX, prevY: e.clientY };
+  };
+
+  const handlePointerMove = (e) => {
+    if (!pointerRef.current.down) return;
+    const dx = e.clientX - pointerRef.current.prevX;
+    const dy = e.clientY - pointerRef.current.prevY;
+    pointerRef.current.prevX = e.clientX;
+    pointerRef.current.prevY = e.clientY;
+
+    if (Math.hypot(e.clientX - pointerRef.current.startX, e.clientY - pointerRef.current.startY) > 6) {
+      const eng = engineRef.current;
+      eng.autoOrbit = false;
+      eng.targetTheta -= dx * 0.0075;
+      eng.targetPhi = Math.max(0.22, Math.min(1.38, eng.targetPhi - dy * 0.0065));
+    }
+  };
+
+  const handlePointerUp = (e) => {
+    if (!pointerRef.current.down) return;
+    pointerRef.current.down = false;
+    const dist = Math.hypot(e.clientX - pointerRef.current.startX, e.clientY - pointerRef.current.startY);
+    if (dist < 8 && window.THREE && mountRef.current) {
+      const THREE = window.THREE;
+      const eng = engineRef.current;
+      const rect = mountRef.current.getBoundingClientRect();
+      const mouse = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      );
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, eng.camera);
+
+      const tileHits = raycaster.intersectObjects(Object.values(eng.squareMeshes), false);
+      if (tileHits.length > 0 && tileHits[0].object.userData.square) {
+        handleSquareTap(tileHits[0].object.userData.square);
+        return;
+      }
+
+      if (eng.piecesGroup) {
+        const pieceHits = raycaster.intersectObjects(eng.piecesGroup.children, true);
+        if (pieceHits.length > 0) {
+          let obj = pieceHits[0].object;
+          while (obj && !obj.userData.square && obj.parent) obj = obj.parent;
+          if (obj && obj.userData.square) handleSquareTap(obj.userData.square);
+        }
+      }
+    }
+  };
+
+  const handleWheel = (e) => {
+    const eng = engineRef.current;
+    eng.targetRadius = Math.max(8.5, Math.min(22, eng.targetRadius + e.deltaY * 0.01));
+  };
+
+  const handleSelectRoyalTheme = (themeKey) => {
+    setRoyalTheme(themeKey);
+    if (engineRef.current.applyTheme) {
+      engineRef.current.applyTheme(themeKey);
+    }
+    audioCtrl.playSelect();
+  };
+
+  const handleSelectCameraPreset = (preset) => {
+    setCamPreset(preset);
+    const eng = engineRef.current;
+    audioCtrl.playSelect();
+    if (preset === 'white') {
+      eng.autoOrbit = false;
+      eng.targetTheta = 0;
+      eng.targetPhi = 0.88;
+      eng.targetRadius = 14.5;
+    } else if (preset === 'black') {
+      eng.autoOrbit = false;
+      eng.targetTheta = Math.PI;
+      eng.targetPhi = 0.88;
+      eng.targetRadius = 14.5;
+    } else if (preset === 'top') {
+      eng.autoOrbit = false;
+      eng.targetTheta = 0;
+      eng.targetPhi = 0.24;
+      eng.targetRadius = 15.5;
+    } else if (preset === 'orbit') {
+      eng.autoOrbit = true;
+      eng.targetPhi = 0.92;
+      eng.targetRadius = 16.0;
+    }
+  };
+
+  const handleUndoMove = () => {
+    const eng = engineRef.current;
+    if (!eng.chess || eng.isAnimating) return;
+    if (gameMode === 'ai') {
+      eng.chess.undo();
+      eng.chess.undo();
+    } else {
+      eng.chess.undo();
+    }
+    eng.selectedSquare = null;
+    eng.legalMoves = [];
+    eng.clearHighlights();
+    eng.rebuildPieces();
+    audioCtrl.playSlide();
+    syncHudFromChess();
+  };
+
+  const handleResetBoard = () => {
+    const eng = engineRef.current;
+    if (!eng.chess || eng.isAnimating) return;
+    audioCtrl.playShatter();
+    eng.chess.reset();
+    eng.selectedSquare = null;
+    eng.legalMoves = [];
+    eng.clearHighlights();
+    eng.rebuildPieces();
+    syncHudFromChess();
+  };
+
+  const handleCompletePromotion = (pieceChar) => {
+    if (!pendingPromotion) return;
+    const eng = engineRef.current;
+    const executed = eng.chess.move({
+      from: pendingPromotion.from,
+      to: pendingPromotion.to,
+      promotion: pieceChar
+    });
+    setPendingPromotion(null);
+    eng.selectedSquare = null;
+    eng.legalMoves = [];
+    eng.clearHighlights();
+    if (executed) {
+      eng.executeMove3D(executed, () => {
+        syncHudFromChess();
+        if (gameMode === 'ai') triggerAiTurnIfNeeded();
+      });
+    }
+  };
+
+  const handleSignUpSubmit = async (e) => {
+    e.preventDefault();
+    const cleanName = signupUsername.trim().replace(/\s+/g, '_');
+    if (!cleanName) return;
+
+    const updatedProfile = {
+      ...currentUser,
+      username: cleanName,
+      house: signupHouse,
+      online: true
+    };
+    setCurrentUser(updatedProfile);
+    localStorage.setItem('wizards_react_user_v1', JSON.stringify(updatedProfile));
+    setSignupPasskey('');
+    audioCtrl.playCheck();
+
+    if (neonDbUrl) {
+      await executeNeonOrNodeSQL(
+        `INSERT INTO wizard_users (username, house, passkey, wins, losses, draws, last_seen)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (username) DO UPDATE SET house = EXCLUDED.house, last_seen = EXCLUDED.last_seen;`,
+        [cleanName, signupHouse, signupPasskey || 'sanctum', updatedProfile.wins, updatedProfile.losses, updatedProfile.draws, Date.now()]
+      );
+      setDbStatusMsg(`Synced @${cleanName} to Neon PostgreSQL`);
+    }
+  };
+
+  const handleAddFriendByUsername = async (targetUsername) => {
+    const clean = (targetUsername || friendSearchQuery).trim().replace(/\s+/g, '_');
+    if (!clean) return;
+
+    setWizardsDirectory(prev => {
+      const exists = prev.some(w => w.username.toLowerCase() === clean.toLowerCase());
+      if (exists) {
+        return prev.map(w =>
+          w.username.toLowerCase() === clean.toLowerCase() ? { ...w, isFriend: true } : w
+        );
+      }
+      return [
+        {
+          username: clean,
+          house: 'Sanctum Challenger',
+          wins: Math.floor(Math.random() * 14) + 1,
+          losses: Math.floor(Math.random() * 7),
+          draws: 1,
+          online: true,
+          isFriend: true,
+          lastSeen: Date.now()
+        },
+        ...prev
+      ];
+    });
+    setFriendSearchQuery('');
+    audioCtrl.playSelect();
+
+    if (neonDbUrl) {
+      await executeNeonOrNodeSQL(
+        `INSERT INTO wizard_friends (owner_username, friend_username) VALUES ($1, $2) ON CONFLICT DO NOTHING;`,
+        [currentUser.username, clean]
+      );
+    }
+  };
+
+  const handleConnectNeonDb = async () => {
+    localStorage.setItem('wizards_chess_neon_url', neonDbUrl.trim());
+    localStorage.setItem('wizards_chess_node_api', nodeApiUrl.trim());
+    if (!neonDbUrl.trim()) {
+      setDbStatusMsg('Using Local Vault (Paste postgresql:// URL for Neon Cloud Sync)');
+      return;
+    }
+    setDbStatusMsg('Provisioning wizard_users, wizard_friends & wizard_match_history on Neon...');
+    await executeNeonOrNodeSQL(`
+      CREATE TABLE IF NOT EXISTS wizard_users (
+        username TEXT PRIMARY KEY,
+        house TEXT,
+        passkey TEXT,
+        wins INT DEFAULT 0,
+        losses INT DEFAULT 0,
+        draws INT DEFAULT 0,
+        last_seen BIGINT
+      );
+    `);
+    await executeNeonOrNodeSQL(`
+      CREATE TABLE IF NOT EXISTS wizard_friends (
+        owner_username TEXT,
+        friend_username TEXT,
+        PRIMARY KEY (owner_username, friend_username)
+      );
+    `);
+    const ok = await executeNeonOrNodeSQL(`
+      CREATE TABLE IF NOT EXISTS wizard_match_history (
+        id SERIAL PRIMARY KEY,
+        player_username TEXT,
+        opponent_name TEXT,
+        result TEXT,
+        moves_san TEXT,
+        theme TEXT,
+        played_at TEXT
+      );
+    `);
+    if (ok) {
+      setDbStatusMsg('Connected to Neon Serverless PostgreSQL!');
+      audioCtrl.playCheck();
+    } else {
+      setDbStatusMsg('Saved URL • Running in Hybrid Local + Node.js Mode');
+    }
+  };
+
+  const copyBackendCode = () => {
+    const textArea = document.createElement('textarea');
+    textArea.value = NODE_BACKEND_SOURCE;
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const filteredWizards = wizardsDirectory.filter(w =>
+    !friendSearchQuery.trim() ||
+    w.username.toLowerCase().includes(friendSearchQuery.toLowerCase()) ||
+    w.house.toLowerCase().includes(friendSearchQuery.toLowerCase())
+  );
+
+  const onlineFriendsCount = wizardsDirectory.filter(w => w.isFriend && w.online).length;
+
+  return (
+    <div className="relative w-screen h-screen overflow-hidden bg-[#09080d] text-[#f3eff4] select-none font-sans">
+      {/* 3D WebGL Cathedral Viewport */}
+      <div
+        ref={mountRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onWheel={handleWheel}
+        className="fixed inset-0 w-full h-full z-0 cursor-grab active:cursor-grabbing"
+      />
+
+      {/* Top Single-Level Material Design 3 Navigation Bar */}
+      <header className="fixed top-2 sm:top-4 left-1/2 -translate-x-1/2 z-20 w-[97%] max-w-7xl pointer-events-none">
+        <div className="bg-[#161320]/80 backdrop-blur-xl border border-white/15 shadow-2xl rounded-2xl sm:rounded-full px-2.5 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 pointer-events-auto">
+          
+          {/* Brand Title */}
+          <div className="flex items-center gap-2 pl-1 pr-2.5 border-r border-white/10">
+            <Castle className="w-5 h-5 sm:w-6 sm:h-6 text-amber-300 shrink-0" />
+            <div>
+              <h1 className="font-serif text-xs sm:text-sm md:text-base font-bold tracking-wider text-white leading-none">
+                WIZARD&apos;S CHESS
+              </h1>
+              <p className="text-[9px] sm:text-[10px] text-purple-300/80 tracking-widest uppercase mt-0.5">
+                {ROYAL_THEMES[royalTheme].name} • React &amp; Node
+              </p>
+            </div>
+          </div>
+
+          {/* Game Mode Pills */}
+          <div className="flex items-center gap-1 bg-black/35 p-1 rounded-full border border-white/10">
+            <button
+              onClick={() => { setGameMode('ai'); audioCtrl.playSelect(); }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition ${
+                gameMode === 'ai'
+                  ? 'bg-gradient-to-r from-purple-500/30 to-amber-400/25 border border-amber-400/60 text-amber-100 shadow-lg'
+                  : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              <Bot className="w-3.5 h-3.5" />
+              <span>vs AI</span>
+            </button>
+            <button
+              onClick={() => { setGameMode('2p'); audioCtrl.playSelect(); }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition ${
+                gameMode === '2p'
+                  ? 'bg-gradient-to-r from-purple-500/30 to-amber-400/25 border border-amber-400/60 text-amber-100 shadow-lg'
+                  : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>{activeFriendOpponent ? `vs ${activeFriendOpponent}` : '2P / Duel'}</span>
+            </button>
+          </div>
+
+          {/* 4 Royal Themes Direct Single-Level Pills */}
+          <div className="hidden xl:flex items-center gap-1 bg-black/35 p-1 rounded-full border border-white/10">
+            {Object.values(ROYAL_THEMES).map(theme => (
+              <button
+                key={theme.id}
+                onClick={() => handleSelectRoyalTheme(theme.id)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition ${
+                  royalTheme === theme.id
+                    ? 'bg-gradient-to-r from-purple-500/30 to-amber-400/25 border border-amber-400/60 text-amber-100'
+                    : 'text-gray-300 hover:text-white'
+                }`}
+              >
+                <span className={`w-2.5 h-2.5 rounded-full bg-gradient-to-tr ${theme.badgeClass}`} />
+                <span>{theme.shortName}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Camera Preset Direct Pills */}
+          <div className="hidden lg:flex items-center gap-1 bg-black/35 p-1 rounded-full border border-white/10">
+            {[
+              { id: 'white', label: 'White' },
+              { id: 'black', label: 'Black' },
+              { id: 'top', label: 'Overhead' },
+              { id: 'orbit', label: 'Orbit' }
+            ].map(cam => (
+              <button
+                key={cam.id}
+                onClick={() => handleSelectCameraPreset(cam.id)}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${
+                  camPreset === cam.id
+                    ? 'bg-gradient-to-r from-purple-500/30 to-amber-400/25 border border-amber-400/60 text-amber-100'
+                    : 'text-gray-300 hover:text-white'
+                }`}
+              >
+                {cam.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Right Action Controls: Guild/DB/Friends, Mobile Theme/Camera, Undo, Reset, Epic Music, SFX */}
+          <div className="flex items-center gap-1 sm:gap-1.5">
+            <button
+              onClick={() => { setSanctumModalOpen(true); audioCtrl.playSelect(); }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-purple-500/20 border border-purple-400/50 text-amber-100 hover:bg-purple-500/30 transition"
+              title="Sign Up, Search Friends, Match History & Node.js / Neon DB"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
+              <Shield className="w-3.5 h-3.5 text-amber-300" />
+              <span className="max-w-[85px] truncate">{currentUser.username}</span>
+              <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30">
+                {onlineFriendsCount} Online
+              </span>
+            </button>
+
+            {/* Mobile/Tablet Cycle Buttons */}
+            <button
+              onClick={() => {
+                const keys = Object.keys(ROYAL_THEMES);
+                const next = keys[(keys.indexOf(royalTheme) + 1) % keys.length];
+                handleSelectRoyalTheme(next);
+              }}
+              className="xl:hidden p-2 rounded-full bg-white/5 border border-white/10 text-amber-300 hover:bg-white/10"
+              title="Cycle Royal Cathedral Theme"
+            >
+              <Palette className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={() => {
+                const presets = ['white', 'black', 'top', 'orbit'];
+                const next = presets[(presets.indexOf(camPreset) + 1) % presets.length];
+                handleSelectCameraPreset(next);
+              }}
+              className="lg:hidden p-2 rounded-full bg-white/5 border border-white/10 text-purple-200 hover:bg-white/10"
+              title="Cycle Camera View"
+            >
+              <Camera className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={handleUndoMove}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-semibold bg-white/5 border border-white/10 hover:bg-white/15 transition"
+              title="Undo Move"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Undo</span>
+            </button>
+
+            <button
+              onClick={handleResetBoard}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-semibold bg-white/5 border border-white/10 hover:bg-white/15 transition"
+              title="Reset Game"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Reset</span>
+            </button>
+
+            {/* Continuous Epic Inspirational Music Toggle */}
+            <button
+              onClick={() => {
+                if (musicPlaying) audioCtrl.stopMusic(setMusicPlaying);
+                else audioCtrl.startMusic(setMusicPlaying);
+              }}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold border transition ${
+                musicPlaying
+                  ? 'bg-amber-400/20 border-amber-400/60 text-amber-200'
+                  : 'bg-white/5 border-white/10 text-gray-400'
+              }`}
+              title="Continuous Epic Inspirational Cathedral Soundtrack"
+            >
+              <Music className="w-3.5 h-3.5 text-amber-300" />
+              <span className="hidden sm:inline text-[11px]">{musicPlaying ? 'Epic OST' : 'OST Off'}</span>
+            </button>
+
+            {/* Stone & Shatter SFX Toggle */}
+            <button
+              onClick={() => {
+                const next = !sfxEnabled;
+                audioCtrl.sfxEnabled = next;
+                setSfxEnabled(next);
+                if (next) audioCtrl.playSelect();
+              }}
+              className={`p-2 rounded-full border transition ${
+                sfxEnabled
+                  ? 'bg-purple-500/20 border-purple-400/50 text-purple-200'
+                  : 'bg-white/5 border-white/10 text-gray-400'
+              }`}
+              title="Toggle Stone & Shatter SFX"
+            >
+              {sfxEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Bottom Responsive Telemetry & Move History Dock */}
+      <footer className="fixed bottom-2 sm:bottom-4 left-1/2 -translate-x-1/2 z-20 w-[97%] max-w-5xl pointer-events-none">
+        <div className="bg-[#161320]/80 backdrop-blur-xl border border-white/15 shadow-2xl rounded-2xl sm:rounded-3xl px-3.5 sm:px-5 py-2.5 flex flex-col sm:flex-row items-center justify-between gap-2 pointer-events-auto">
+          
+          {/* Active Turn & Check Alert */}
+          <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-start">
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-4 h-4 rounded-full transition-all duration-300 ${
+                  turnColor === 'w'
+                    ? 'bg-amber-100 shadow-[0_0_12px_#fef3c7] border border-amber-400'
+                    : 'bg-purple-500 shadow-[0_0_12px_#a855f7] border border-purple-300'
+                }`}
+              />
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-white">
+                    {turnColor === 'w'
+                      ? `${currentUser.username}'s Turn (White)`
+                      : `${activeFriendOpponent || (gameMode === 'ai' ? 'Obsidian AI' : 'Black')}'s Turn`}
+                  </span>
+                  {(inCheck || gameOverText) && (
+                    <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-red-500/25 text-red-300 border border-red-500/40 animate-pulse">
+                      {gameOverText || 'CHECK'}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-400">{subStatusText}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Algebraic Move History Strip */}
+          <div className="flex items-center gap-1.5 overflow-x-auto max-w-full sm:max-w-xs md:max-w-sm px-2.5 py-1 bg-black/30 rounded-full border border-white/10 text-xs text-gray-300 h-8">
+            {moveHistory.length === 0 ? (
+              <span className="text-gray-500 italic px-2 text-[11px]">No moves yet — battle awaits</span>
+            ) : (
+              moveHistory.slice(-8).map(m => (
+                <span key={m.num} className="px-2 py-0.5 rounded-full bg-white/10 text-[11px] font-mono text-amber-100 shrink-0">
+                  {m.num}.{m.san}
+                </span>
+              ))
+            )}
+          </div>
+
+          {/* Shattered Pieces Tally */}
+          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end border-t sm:border-t-0 pt-1.5 sm:pt-0 border-white/10">
+            <div className="flex items-center gap-1.5 bg-black/35 px-2.5 py-1 rounded-full border border-white/10" title="Shattered Black Pieces">
+              <span className="w-2 h-2 rounded-full bg-purple-400" />
+              <span className="text-xs text-purple-200 font-medium min-w-[24px]">
+                {capturedByBlack.length ? capturedByBlack.join('') : '—'}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 bg-black/35 px-2.5 py-1 rounded-full border border-white/10" title="Shattered White Pieces">
+              <span className="w-2 h-2 rounded-full bg-amber-200" />
+              <span className="text-xs text-amber-100 font-medium min-w-[24px]">
+                {capturedByWhite.length ? capturedByWhite.join('') : '—'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </footer>
+
+      {/* Pawn Promotion Modal */}
+      {pendingPromotion && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-[#161320]/95 border border-amber-400/40 rounded-3xl p-5 flex flex-col items-center gap-4 max-w-sm w-full shadow-2xl">
+            <div className="text-center">
+              <h3 className="font-serif text-lg font-bold text-amber-200">ASCENSION RITE</h3>
+              <p className="text-xs text-gray-300 mt-0.5">Choose the sculpted form for your promoted Pawn</p>
+            </div>
+            <div className="grid grid-cols-4 gap-2 w-full">
+              {[
+                { id: 'q', label: 'Queen', icon: '♛' },
+                { id: 'r', label: 'Rook', icon: '♜' },
+                { id: 'b', label: 'Bishop', icon: '♝' },
+                { id: 'n', label: 'Knight', icon: '♞' }
+              ].map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => handleCompletePromotion(p.id)}
+                  className="flex flex-col items-center py-3 rounded-2xl bg-white/5 hover:bg-purple-500/25 border border-white/10 hover:border-amber-400/50 transition"
+                >
+                  <span className="text-2xl">{p.icon}</span>
+                  <span className="text-[11px] mt-1 font-semibold">{p.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sanctum Guild, Friend Search, Match History & Node.js + Neon PostgreSQL Modal */}
+      {sanctumModalOpen && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/75 backdrop-blur-md p-2 sm:p-4 overflow-y-auto">
+          <div className="bg-[#161320]/95 border border-purple-400/35 rounded-3xl w-full max-w-4xl overflow-hidden my-auto max-h-[92vh] flex flex-col shadow-2xl">
+            
+            {/* Modal Header with Tab Switcher */}
+            <div className="px-4 sm:px-6 py-3.5 bg-black/40 border-b border-white/10 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <Crown className="w-6 h-6 text-amber-300" />
+                <div>
+                  <h2 className="font-serif text-sm sm:text-base font-bold text-white tracking-wide">
+                    SANCTUM REGISTRY • REACT &amp; NODE.JS STACK
+                  </h2>
+                  <p className="text-[11px] text-emerald-300">{dbStatusMsg}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setModalTab('fellowship')}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${
+                    modalTab === 'fellowship'
+                      ? 'bg-purple-500/30 border border-amber-400/60 text-amber-100'
+                      : 'bg-white/5 text-gray-300'
+                  }`}
+                >
+                  Sign Up, Friends &amp; History
+                </button>
+                <button
+                  onClick={() => setModalTab('node_backend')}
+                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition ${
+                    modalTab === 'node_backend'
+                      ? 'bg-purple-500/30 border border-amber-400/60 text-amber-100'
+                      : 'bg-white/5 text-gray-300'
+                  }`}
+                >
+                  <Terminal className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Node.js Server Code</span>
+                </button>
+                <button
+                  onClick={() => setSanctumModalOpen(false)}
+                  className="p-1.5 rounded-full bg-white/5 hover:bg-white/15 text-gray-300"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {modalTab === 'fellowship' ? (
+              <div className="p-4 sm:p-6 overflow-y-auto grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
+                
+                {/* Left Column: Wizard Sign Up & Neon PostgreSQL Connection */}
+                <div className="lg:col-span-5 flex flex-col gap-4">
+                  <div className="bg-black/35 rounded-2xl p-4 border border-white/10">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-xs font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1.5">
+                        <UserPlus className="w-4 h-4" />
+                        <span>Wizard Sign Up / Login</span>
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        Online
+                      </span>
+                    </div>
+
+                    <form onSubmit={handleSignUpSubmit} className="space-y-2.5">
+                      <div>
+                        <label className="text-[11px] text-gray-400 block mb-1">Unique Wizard Username</label>
+                        <input
+                          type="text"
+                          required
+                          minLength={3}
+                          maxLength={20}
+                          value={signupUsername}
+                          onChange={e => setSignupUsername(e.target.value)}
+                          placeholder="e.g. Albus_Vance"
+                          className="w-full bg-black/60 border border-white/15 rounded-xl px-3 py-2 text-xs text-white focus:border-purple-400 outline-none"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[11px] text-gray-400 block mb-1">Sanctum Order</label>
+                          <select
+                            value={signupHouse}
+                            onChange={e => setSignupHouse(e.target.value)}
+                            className="w-full bg-black/60 border border-white/15 rounded-xl px-2.5 py-2 text-xs text-white outline-none"
+                          >
+                            <option value="Alabaster Archmage">Alabaster Archmage</option>
+                            <option value="Obsidian Sovereign">Obsidian Sovereign</option>
+                            <option value="Imperial Grandmaster">Imperial Grandmaster</option>
+                            <option value="Sapphire Seer">Sapphire Seer</option>
+                            <option value="Emerald Warden">Emerald Warden</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-gray-400 block mb-1">Passkey</label>
+                          <input
+                            type="password"
+                            required
+                            value={signupPasskey}
+                            onChange={e => setSignupPasskey(e.target.value)}
+                            placeholder="••••••"
+                            className="w-full bg-black/60 border border-white/15 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                          />
+                        </div>
+                      </div>
+                      <button
+                        type="submit"
+                        className="w-full py-2.5 rounded-xl bg-gradient-to-r from-purple-500/35 to-amber-500/30 border border-amber-400/50 text-amber-100 text-xs font-bold hover:opacity-95 transition"
+                      >
+                        Sign Up / Sync Profile
+                      </button>
+                    </form>
+
+                    <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between text-xs">
+                      <div>
+                        <div className="text-gray-400 text-[11px]">Active Commander</div>
+                        <div className="font-bold text-white text-sm">@{currentUser.username}</div>
+                        <div className="text-[11px] text-amber-300">{currentUser.house}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[11px] text-gray-400">Sanctum Record</div>
+                        <div className="font-semibold text-purple-200">
+                          {currentUser.wins}W • {currentUser.losses}L • {currentUser.draws}D
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Neon Database & Node API Connection */}
+                  <div className="bg-black/35 rounded-2xl p-4 border border-white/10 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                        <Database className="w-4 h-4" />
+                        <span>Neon PostgreSQL &amp; Node API</span>
+                      </span>
+                      <span className="text-[10px] text-emerald-300">
+                        {isNeonConnected ? 'Cloud Connected' : 'Hybrid Mode'}
+                      </span>
+                    </div>
+                    <input
+                      type="password"
+                      value={neonDbUrl}
+                      onChange={e => setNeonDbUrl(e.target.value)}
+                      placeholder="postgresql://user:pass@ep-cool.region.aws.neon.tech/neondb"
+                      className="w-full bg-black/60 border border-white/15 rounded-xl px-3 py-2 text-xs font-mono text-white outline-none"
+                    />
+                    <button
+                      onClick={handleConnectNeonDb}
+                      className="w-full py-2 rounded-xl bg-purple-500/25 border border-purple-400/50 text-xs font-semibold text-purple-100 hover:bg-purple-500/35 transition"
+                    >
+                      Connect &amp; Provision Neon PostgreSQL
+                    </button>
+                  </div>
+                </div>
+
+                {/* Right Column: Search Friends by Username & Match History Archive */}
+                <div className="lg:col-span-7 flex flex-col gap-4">
+                  <div className="bg-black/35 rounded-2xl p-4 border border-white/10">
+                    <div className="flex items-center justify-between mb-2.5">
+                      <span className="text-xs font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1.5">
+                        <Search className="w-4 h-4" />
+                        <span>Search &amp; Add Friends by Username</span>
+                      </span>
+                      <span className="text-[11px] text-emerald-300 font-semibold">
+                        {onlineFriendsCount} Friends Online
+                      </span>
+                    </div>
+
+                    <div className="flex gap-2 mb-3">
+                      <input
+                        type="text"
+                        value={friendSearchQuery}
+                        onChange={e => setFriendSearchQuery(e.target.value)}
+                        placeholder="Search username (e.g. Morgana_LeFay, Cedric_Storm, or type any username)..."
+                        className="flex-1 bg-black/60 border border-white/15 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                      />
+                      <button
+                        onClick={() => handleAddFriendByUsername(friendSearchQuery)}
+                        className="px-3.5 py-2 rounded-xl bg-amber-400/20 border border-amber-400/50 text-amber-200 text-xs font-semibold shrink-0"
+                      >
+                        + Add Friend
+                      </button>
+                    </div>
+
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {filteredWizards.map(w => (
+                        <div
+                          key={w.username}
+                          className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex items-center justify-between gap-2"
+                        >
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-white">@{w.username}</span>
+                              <span
+                                className={`inline-flex items-center gap-1 text-[10px] font-semibold ${
+                                  w.online ? 'text-emerald-300' : 'text-gray-400'
+                                }`}
+                              >
+                                <span
+                                  className={`w-2 h-2 rounded-full ${
+                                    w.online ? 'bg-emerald-400 shadow-[0_0_6px_#34d399]' : 'bg-gray-500'
+                                  }`}
+                                />
+                                {w.online ? 'Online' : 'Offline'}
+                              </span>
+                              {w.isFriend && (
+                                <span className="px-1.5 py-0.5 rounded-full bg-purple-500/25 text-purple-200 text-[9px] font-bold">
+                                  Friend
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-gray-400">
+                              {w.house} • {w.wins}W / {w.losses}L
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {!w.isFriend && (
+                              <button
+                                onClick={() => handleAddFriendByUsername(w.username)}
+                                className="px-2.5 py-1 rounded-lg bg-white/10 text-[11px] hover:bg-white/20"
+                              >
+                                Add
+                              </button>
+                            )}
+                            <button
+                              onClick={() => {
+                                setActiveFriendOpponent(w.username);
+                                setGameMode(w.online ? 'ai' : '2p');
+                                handleResetBoard();
+                                setSanctumModalOpen(false);
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-500/30 border border-amber-400/50 text-amber-100 text-[11px] font-semibold"
+                            >
+                              <Swords className="w-3 h-3" />
+                              <span>Duel</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Persistent Match History Archive */}
+                  <div className="bg-black/35 rounded-2xl p-4 border border-white/10 flex-1 flex flex-col">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                        <History className="w-4 h-4" />
+                        <span>Cathedral Match History Archive</span>
+                      </span>
+                      <button
+                        onClick={() => {
+                          const eng = engineRef.current;
+                          const hist = eng.chess ? eng.chess.history() : [];
+                          recordCompletedMatchToDB(
+                            `SNAPSHOT (${hist.length} ply)`,
+                            activeFriendOpponent || 'Obsidian AI',
+                            hist,
+                            ROYAL_THEMES[royalTheme].name
+                          );
+                          audioCtrl.playSelect();
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-[11px] text-amber-200 font-semibold"
+                      >
+                        + Save Battle Snapshot
+                      </button>
+                    </div>
+
+                    <div className="space-y-2 max-h-40 overflow-y-auto pr-1 text-xs">
+                      {matchHistoryVault.length === 0 ? (
+                        <div className="text-gray-500 italic py-4 text-center">
+                          Completed games and snapshots are stored here &amp; synced to Neon PostgreSQL.
+                        </div>
+                      ) : (
+                        matchHistoryVault.map((item, idx) => (
+                          <div
+                            key={idx}
+                            className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex items-center justify-between gap-2"
+                          >
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-200 border border-amber-500/30">
+                                  {item.result}
+                                </span>
+                                <span className="font-semibold text-white">vs {item.opponent}</span>
+                                <span className="text-[10px] text-purple-300">• {item.theme}</span>
+                              </div>
+                              <div className="text-[10px] text-gray-400 font-mono mt-0.5 truncate max-w-md">
+                                Moves: {item.moves}
+                              </div>
+                            </div>
+                            <span className="text-[10px] text-gray-400 shrink-0">{item.date}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* Node.js + Express + Neon PostgreSQL Backend Code Tab */
+              <div className="p-4 sm:p-6 overflow-y-auto space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-bold text-amber-200">
+                      Complete Node.js + Express + Neon PostgreSQL Backend (`server.js`)
+                    </h3>
+                    <p className="text-xs text-gray-400">
+                      Run this Node.js server alongside the React frontend or connect directly using your Neon URL in the Fellowship tab.
+                    </p>
+                  </div>
+                  <button
+                    onClick={copyBackendCode}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-purple-500/30 border border-amber-400/50 text-amber-100 text-xs font-semibold"
+                  >
+                    {copiedCode ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
+                    <span>{copiedCode ? 'Copied server.js!' : 'Copy server.js'}</span>
+                  </button>
+                </div>
+                <pre className="bg-black/80 border border-white/15 rounded-2xl p-4 text-[11px] font-mono text-purple-200 overflow-x-auto max-h-[60vh] leading-relaxed select-text">
+                  {NODE_BACKEND_SOURCE}
+                </pre>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

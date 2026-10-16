@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Production build output
+dist/
+dist-ssr/
+
+# Environment configurations
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE & Agent caches
+.agents/
+.vscode/
+.idea/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Root loose audio files (canonical copies are in public/music/)
+/*.mp3
