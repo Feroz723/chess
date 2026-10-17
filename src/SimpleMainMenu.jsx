@@ -399,204 +399,256 @@ export function SimpleMainMenu({
             </p>
           </div>
 
-          {/* Two Mode Choice Tabs */}
-          <div className="grid grid-cols-2 gap-2 sm:gap-2.5 mb-2.5 sm:mb-3">
-            {/* Tab 1: Solo vs AI */}
-            <button
-              type="button"
-              onClick={() => setGameMode('ai')}
-              className={`p-2.5 sm:p-3 rounded-2xl border text-left transition flex items-center gap-2.5 sm:gap-3 cursor-pointer ${
-                gameMode === 'ai'
-                  ? 'bg-gradient-to-r from-amber-400/25 via-amber-500/15 to-purple-600/20 border-amber-400 text-amber-100 shadow-[0_0_20px_rgba(245,158,11,0.25)] ring-1 ring-amber-400/50'
-                  : 'bg-white/[0.04] backdrop-blur-md border-white/10 text-slate-300 hover:bg-white/[0.08] hover:border-amber-400/40'
-              }`}
-            >
-              <div className="p-1.5 sm:p-2 rounded-xl bg-amber-400/20 text-amber-300 shrink-0 border border-amber-400/30">
-                <Bot className="w-4 h-4 sm:w-5 sm:h-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between">
-                  <div className="font-bold text-xs sm:text-sm text-white truncate">Play vs AI</div>
-                  {gameMode === 'ai' && (
-                    <span className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_#f59e0b] shrink-0 ml-1" />
-                  )}
+          {/* SECTION 1: GAME MODES (Segoe UI Header with Neon Pill Selection) */}
+          <div className="p-3 sm:p-3.5 rounded-2xl bg-[#0c0a14]/90 backdrop-blur-xl border border-white/10 shadow-[0_8px_24px_rgba(0,0,0,0.5)] mb-2.5">
+            <div className="flex items-center justify-between text-xs font-semibold mb-2" style={{ fontFamily: '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif' }}>
+              <span className="text-gray-200 uppercase tracking-wider text-[11px] sm:text-xs font-bold">GAME MODES</span>
+              <span className="text-[11px] text-gray-400 font-normal">Segoe UI</span>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+              {/* Play vs AI */}
+              <button
+                type="button"
+                onClick={() => setGameMode('ai')}
+                className={`py-2 px-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  gameMode === 'ai'
+                    ? 'border-2 border-cyan-400/90 bg-cyan-950/40 text-cyan-200 shadow-[0_0_16px_rgba(34,211,238,0.45)]'
+                    : 'bg-white/[0.04] border border-white/10 text-gray-400 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <div className="p-0.5 rounded bg-cyan-400/20 text-cyan-300">
+                  <Bot className="w-3.5 h-3.5" />
                 </div>
-                <div className="text-[10px] sm:text-[11px] text-slate-400 truncate">Solo match vs AI</div>
-              </div>
-            </button>
+                <span className="truncate">Play vs AI</span>
+              </button>
 
-            {/* Tab 2: 2-Player Pass & Play */}
-            <button
-              type="button"
-              onClick={() => setGameMode('2p')}
-              className={`p-2.5 sm:p-3 rounded-2xl border text-left transition flex items-center gap-2.5 sm:gap-3 cursor-pointer ${
-                gameMode === '2p'
-                  ? 'bg-gradient-to-r from-purple-500/30 via-purple-600/20 to-amber-500/15 border-purple-400 text-purple-100 shadow-[0_0_20px_rgba(168,85,247,0.25)] ring-1 ring-purple-400/50'
-                  : 'bg-white/[0.04] backdrop-blur-md border-white/10 text-slate-300 hover:bg-white/[0.08] hover:border-purple-400/40'
-              }`}
-            >
-              <div className="p-1.5 sm:p-2 rounded-xl bg-purple-500/25 text-purple-300 shrink-0 border border-purple-400/30">
-                <Users className="w-4 h-4 sm:w-5 sm:h-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between">
-                  <div className="font-bold text-xs sm:text-sm text-white truncate">Pass &amp; Play</div>
-                  {gameMode === '2p' && (
-                    <span className="w-2 h-2 rounded-full bg-purple-400 shadow-[0_0_8px_#c084fc] shrink-0 ml-1" />
-                  )}
-                </div>
-                <div className="text-[10px] sm:text-[11px] text-slate-400 truncate">2 Players, local</div>
-              </div>
-            </button>
+              {/* Pass & Play */}
+              <button
+                type="button"
+                onClick={() => setGameMode('2p')}
+                className={`py-2 px-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                  gameMode === '2p'
+                    ? 'border-2 border-purple-400/90 bg-purple-950/40 text-purple-200 shadow-[0_0_16px_rgba(192,132,252,0.45)]'
+                    : 'bg-white/[0.04] border border-white/10 text-gray-400 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5 text-gray-400" />
+                <span className="truncate">Pass &amp; Play</span>
+              </button>
+
+              {/* Online Match (Muted/Coming Soon) */}
+              <button
+                type="button"
+                disabled
+                className="py-2 px-2 rounded-xl text-xs font-bold bg-white/[0.02] border border-white/5 text-gray-500 cursor-not-allowed opacity-60 flex items-center justify-center"
+              >
+                <span className="truncate">Online Match</span>
+              </button>
+            </div>
           </div>
 
-          {/* Mode Settings Area */}
-          {gameMode === 'ai' ? (
-            <div className="p-2.5 sm:p-3 rounded-2xl bg-black/35 backdrop-blur-md border border-white/10 space-y-2 sm:space-y-2.5 mb-2.5 sm:mb-3">
-              {/* Play Side (White or Black) */}
-              <div>
-                <span className="text-[10px] sm:text-[11px] font-bold text-amber-300 uppercase tracking-wider block mb-1">
-                  Your Piece Color
-                </span>
-                <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPlayerColor('w')}
-                    className={`py-1.5 sm:py-2 px-2.5 rounded-xl text-[11px] sm:text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                      playerColor === 'w'
-                        ? 'bg-amber-400/30 border border-amber-400 text-amber-100 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
-                        : 'bg-white/[0.05] border border-white/10 text-slate-300 hover:text-white hover:bg-white/10'
-                    }`}
-                  >
-                    <span className="text-sm">♔</span>
-                    <span>White (Move 1st)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPlayerColor('b')}
-                    className={`py-1.5 sm:py-2 px-2.5 rounded-xl text-[11px] sm:text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                      playerColor === 'b'
-                        ? 'bg-purple-500/35 border border-purple-400 text-purple-100 shadow-[0_0_12px_rgba(168,85,247,0.25)]'
-                        : 'bg-white/[0.05] border border-white/10 text-slate-300 hover:text-white hover:bg-white/10'
-                    }`}
-                  >
-                    <span className="text-sm">♚</span>
-                    <span>Black (AI Moves 1st)</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Difficulty Level (Gallery Image 4) */}
-              <div>
-                <span className="text-[10px] sm:text-[11px] font-bold text-amber-300 uppercase tracking-wider block mb-1">
-                  AI Difficulty
-                </span>
-                <div className="grid grid-cols-4 gap-1 sm:gap-1.5">
-                  {[
-                    { id: 'easy', label: 'EASY', activeClass: 'border-emerald-500 bg-emerald-500/20 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.35)]' },
-                    { id: 'medium', label: 'MEDIUM', activeClass: 'border-amber-500 bg-amber-500/20 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.35)]' },
-                    { id: 'hard', label: 'HARD', activeClass: 'border-rose-500 bg-rose-500/20 text-rose-300 shadow-[0_0_12px_rgba(244,63,94,0.35)]' },
-                    { id: 'expert', label: 'EXPERT', activeClass: 'border-yellow-400 bg-yellow-400/25 text-yellow-200 shadow-[0_0_16px_rgba(250,204,21,0.45)]', hasCrown: true }
-                  ].map((lvl) => (
-                    <button
-                      key={lvl.id}
-                      type="button"
-                      onClick={() => setAiDifficulty(lvl.id)}
-                      className={`py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-xs font-black tracking-wider transition cursor-pointer flex items-center justify-center gap-1 border ${
-                        aiDifficulty === lvl.id
-                          ? lvl.activeClass
-                          : 'bg-white/[0.04] border-white/10 text-slate-400 hover:text-white hover:bg-white/10'
-                      }`}
-                    >
-                      {lvl.hasCrown && <Crown className="w-3 h-3 text-yellow-300 fill-current shrink-0" />}
-                      <span>{lvl.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="p-2.5 sm:p-3 rounded-2xl bg-black/35 backdrop-blur-md border border-white/10 space-y-1.5 mb-2.5 sm:mb-3 text-[11px] sm:text-xs text-slate-200">
-              <div className="flex items-center gap-2">
-                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>White moves first, alternating turns automatically</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>Green indicators show all legal destination squares</span>
+          {/* Piece Color Picker (When vs AI) */}
+          {gameMode === 'ai' && (
+            <div className="px-3 py-2 rounded-2xl bg-[#0c0a14]/70 border border-white/5 mb-2.5 flex items-center justify-between text-xs">
+              <span className="text-gray-400 text-[11px] uppercase tracking-wider font-semibold">Your Side:</span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setPlayerColor('w')}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    playerColor === 'w'
+                      ? 'bg-amber-400/30 text-amber-200 border border-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.3)]'
+                      : 'bg-white/5 text-gray-400 hover:text-white'
+                  }`}
+                >
+                  ♔ White (1st)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPlayerColor('b')}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    playerColor === 'b'
+                      ? 'bg-purple-500/35 text-purple-200 border border-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                      : 'bg-white/5 text-gray-400 hover:text-white'
+                  }`}
+                >
+                  ♚ Black (2nd)
+                </button>
               </div>
             </div>
           )}
 
-          {/* Match Time Control (Blitz, Rapid, Classical, Untimed - Gallery Image 4) */}
-          <div className="p-2 sm:p-2.5 sm:px-3 rounded-2xl bg-black/35 backdrop-blur-md border border-white/10 mb-2.5 sm:mb-3">
-            <div className="flex items-center justify-between text-[10px] sm:text-[11px] font-bold text-amber-300 uppercase tracking-wider mb-1.5">
-              <span className="flex items-center gap-1.5">
-                <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                <span>Time Control</span>
-              </span>
-              <span className="text-[9px] sm:text-[10px] text-slate-300 font-mono">
-                {matchDurationMin === 0 ? 'Untimed (Casual)' : `${matchDurationMin}m per player`}
-              </span>
+          {/* SECTION 2: AI DIFFICULTY (Matching Pill Badges: Green Easy, Orange Medium, Red Hard, Glowing Gold Expert + Crown) */}
+          <div className="p-3 sm:p-3.5 rounded-2xl bg-[#0c0a14]/90 backdrop-blur-xl border border-white/10 shadow-[0_8px_24px_rgba(0,0,0,0.5)] mb-2.5">
+            <div className="flex items-center justify-between text-xs font-semibold mb-2.5" style={{ fontFamily: '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif' }}>
+              <span className="text-gray-200 uppercase tracking-wider text-[11px] sm:text-xs font-bold">AI DIFFICULTY</span>
+              <span className="text-amber-400 text-sm">👑</span>
             </div>
-            <div className="grid grid-cols-5 gap-1 sm:gap-1.5">
-              {[
-                { label: '3m', sub: 'BLITZ', val: 3, activeGlow: 'border-cyan-400 bg-cyan-500/25 text-cyan-200 shadow-[0_0_12px_rgba(6,182,212,0.35)]' },
-                { label: '5m', sub: 'BLITZ', val: 5, activeGlow: 'border-cyan-400 bg-cyan-500/25 text-cyan-200 shadow-[0_0_12px_rgba(6,182,212,0.35)]' },
-                { label: '10m', sub: 'RAPID', val: 10, activeGlow: 'border-amber-400 bg-amber-500/25 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.35)]' },
-                { label: '15m', sub: 'RAPID', val: 15, activeGlow: 'border-amber-400 bg-amber-500/25 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.35)]' },
-                { label: '∞', sub: 'UNTIMED', val: 0, activeGlow: 'border-purple-400 bg-purple-500/25 text-purple-200 shadow-[0_0_12px_rgba(168,85,247,0.35)]' }
-              ].map((tc) => (
-                <button
-                  key={tc.val}
-                  type="button"
-                  onClick={() => onSetTimeControl(tc.val)}
-                  className={`py-1 sm:py-1.5 px-1 rounded-xl transition flex flex-col items-center justify-center cursor-pointer border ${
-                    matchDurationMin === tc.val
-                      ? tc.activeGlow
-                      : 'bg-white/[0.04] border-white/10 text-slate-300 hover:text-white hover:bg-white/10'
-                  }`}
-                >
-                  <span className="font-extrabold text-[11px] sm:text-xs">{tc.label}</span>
-                  <span className="text-[8px] sm:text-[9px] font-mono tracking-wider opacity-80 leading-none mt-0.5">{tc.sub}</span>
-                </button>
-              ))}
+            <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
+              {/* EASY: Green Pill */}
+              <button
+                type="button"
+                onClick={() => setAiDifficulty('easy')}
+                className={`py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs font-bold tracking-wider transition cursor-pointer flex items-center justify-center border-2 ${
+                  aiDifficulty === 'easy'
+                    ? 'border-emerald-500 bg-emerald-950/60 text-emerald-400 shadow-[0_0_16px_rgba(16,185,129,0.5)]'
+                    : 'border-emerald-600/40 bg-emerald-950/20 text-emerald-500/80 hover:text-emerald-300 hover:border-emerald-500'
+                }`}
+              >
+                EASY
+              </button>
+
+              {/* MEDIUM: Orange/Amber Pill */}
+              <button
+                type="button"
+                onClick={() => setAiDifficulty('medium')}
+                className={`py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs font-bold tracking-wider transition cursor-pointer flex items-center justify-center border-2 ${
+                  aiDifficulty === 'medium'
+                    ? 'border-amber-500 bg-amber-950/60 text-amber-400 shadow-[0_0_16px_rgba(245,158,11,0.5)]'
+                    : 'border-amber-600/40 bg-amber-950/20 text-amber-500/80 hover:text-amber-300 hover:border-amber-500'
+                }`}
+              >
+                MEDIUM
+              </button>
+
+              {/* HARD: Deep Red Pill */}
+              <button
+                type="button"
+                onClick={() => setAiDifficulty('hard')}
+                className={`py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs font-bold tracking-wider transition cursor-pointer flex items-center justify-center border-2 ${
+                  aiDifficulty === 'hard'
+                    ? 'border-red-500 bg-red-950/60 text-red-400 shadow-[0_0_16px_rgba(239,68,68,0.5)]'
+                    : 'border-red-600/40 bg-red-950/20 text-red-500/80 hover:text-red-300 hover:border-red-500'
+                }`}
+              >
+                HARD
+              </button>
+
+              {/* EXPERT: Glowing Golden Pill */}
+              <button
+                type="button"
+                onClick={() => setAiDifficulty('expert')}
+                className={`py-1.5 sm:py-2 rounded-full text-[11px] sm:text-xs font-bold tracking-wider transition cursor-pointer flex items-center justify-center border-2 ${
+                  aiDifficulty === 'expert'
+                    ? 'border-yellow-400 bg-yellow-950/60 text-yellow-300 shadow-[0_0_20px_rgba(250,204,21,0.65)] ring-1 ring-yellow-400/50'
+                    : 'border-yellow-500/40 bg-yellow-950/20 text-yellow-400/80 hover:text-yellow-200 hover:border-yellow-400'
+                }`}
+              >
+                EXPERT
+              </button>
             </div>
           </div>
 
-          {/* SOUNDTRACK CARD & ANIMATED AUDIO WAVEFORM VISUALIZER (Gallery Image 4) */}
-          <div className="relative overflow-hidden p-2 sm:p-3 rounded-2xl bg-black/45 backdrop-blur-md border border-amber-400/30 mb-2 sm:mb-3">
-            <div className="flex items-center justify-between text-[10px] sm:text-[11px] mb-1">
-              <span className="font-bold text-amber-300 uppercase tracking-widest flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
-                <span>SOUNDTRACK</span>
-              </span>
-              <span className="text-slate-300/80 font-serif italic text-[10px] truncate max-w-[190px]">
+          {/* SECTION 3: TIME CONTROL (BLITZ 3m, 5m Cyan Pill | RAPID 10m Gold Pill) */}
+          <div className="p-3 sm:p-3.5 rounded-2xl bg-[#0c0a14]/90 backdrop-blur-xl border border-white/10 shadow-[0_8px_24px_rgba(0,0,0,0.5)] mb-2.5">
+            <div className="flex items-center justify-between text-xs font-semibold mb-2.5" style={{ fontFamily: '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif' }}>
+              <span className="text-gray-200 uppercase tracking-wider text-[11px] sm:text-xs font-bold">TIME CONTROL</span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              {/* Blitz Group */}
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="text-[11px] sm:text-xs font-bold tracking-wider text-gray-300 uppercase px-1">BLITZ</span>
+                <button
+                  type="button"
+                  onClick={() => onSetTimeControl(3)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition cursor-pointer border ${
+                    matchDurationMin === 3
+                      ? 'border-2 border-cyan-400 bg-cyan-950/60 text-cyan-200 shadow-[0_0_14px_rgba(34,211,238,0.55)]'
+                      : 'border-white/10 bg-black/40 text-gray-400 hover:text-white'
+                  }`}
+                >
+                  3m
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSetTimeControl(5)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition cursor-pointer border ${
+                    matchDurationMin === 5
+                      ? 'border-2 border-cyan-400 bg-cyan-950/60 text-cyan-200 shadow-[0_0_14px_rgba(34,211,238,0.55)]'
+                      : 'border-white/10 bg-black/40 text-gray-400 hover:text-white'
+                  }`}
+                >
+                  5m
+                </button>
+              </div>
+
+              {/* Rapid Group */}
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="text-[11px] sm:text-xs font-bold tracking-wider text-gray-300 uppercase px-1">RAPID</span>
+                <button
+                  type="button"
+                  onClick={() => onSetTimeControl(10)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition cursor-pointer border ${
+                    matchDurationMin === 10
+                      ? 'border-2 border-yellow-400 bg-yellow-950/60 text-yellow-300 shadow-[0_0_16px_rgba(250,204,21,0.6)]'
+                      : 'border-white/10 bg-black/40 text-gray-400 hover:text-white'
+                  }`}
+                >
+                  10m
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION 4: SOUNDTRACK & GLOWING GOLDEN SINUSOIDAL WAVEFORM WITH MUSICAL NOTES */}
+          <div className="relative overflow-hidden p-3 sm:p-3.5 rounded-2xl bg-[#0c0a14]/90 backdrop-blur-xl border border-white/10 shadow-[0_8px_24px_rgba(0,0,0,0.5)] mb-3">
+            <div className="flex items-center justify-between text-xs mb-2" style={{ fontFamily: '"Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif' }}>
+              <span className="text-gray-200 uppercase tracking-wider text-[11px] sm:text-xs font-bold">SOUNDTRACK</span>
+              <span className="text-gray-400 text-[11px] font-normal truncate max-w-[190px]">
                 {currentThemeObj.musicName || 'Cinematic Score'}
               </span>
             </div>
 
-            {/* Glowing Golden Audio Waveform Graphic (Gallery Image 4) */}
-            <div className="relative h-6 sm:h-9 w-full flex items-center justify-between px-1 gap-0.5 sm:gap-1 overflow-hidden rounded-xl bg-amber-500/[0.06] border border-amber-400/15">
-              {/* Dynamic Wave Bars */}
-              {[40, 65, 25, 80, 50, 95, 30, 70, 85, 45, 100, 60, 35, 90, 75, 55, 85, 40, 70, 95, 50, 30, 85, 60, 45, 75, 35, 65].map((h, bIdx) => (
-                <div
-                  key={bIdx}
-                  className="flex-1 bg-gradient-to-t from-amber-500 to-amber-200 rounded-full transition-all duration-300 shadow-[0_0_8px_rgba(245,158,11,0.4)]"
-                  style={{
-                    height: `${Math.max(15, h)}%`,
-                    animation: `pulse ${1.2 + (bIdx % 5) * 0.25}s ease-in-out infinite alternate`,
-                    animationDelay: `${bIdx * 0.05}s`
-                  }}
+            {/* Glowing Golden Waveform with Floating Musical Notes */}
+            <div className="relative h-14 sm:h-16 w-full flex items-center justify-center overflow-hidden rounded-xl bg-black/50 border border-amber-400/15">
+              {/* Sinusoidal Wave SVG Ribbon with Dual Layer Glow */}
+              <svg className="w-full h-full absolute inset-0 preserve-3d" viewBox="0 0 400 64" fill="none" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="goldWaveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.1" />
+                    <stop offset="20%" stopColor="#fbbf24" stopOpacity="0.8" />
+                    <stop offset="50%" stopColor="#fef08a" stopOpacity="1" />
+                    <stop offset="80%" stopColor="#f59e0b" stopOpacity="0.8" />
+                    <stop offset="100%" stopColor="#d97706" stopOpacity="0.1" />
+                  </linearGradient>
+                  <filter id="waveGlow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feGaussianBlur stdDeviation="3" result="blur" />
+                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                  </filter>
+                </defs>
+                {/* Background ambient ribbon */}
+                <path
+                  d="M0 32 Q 50 10, 100 32 T 200 32 T 300 32 T 400 32 L 400 64 L 0 64 Z"
+                  fill="url(#goldWaveGrad)"
+                  opacity="0.15"
                 />
-              ))}
+                {/* Secondary flowing harmonic wave */}
+                <path
+                  d="M0 32 Q 50 50, 100 32 T 200 32 T 300 32 T 400 32"
+                  stroke="#fbbf24"
+                  strokeWidth="2.5"
+                  opacity="0.6"
+                  fill="none"
+                />
+                {/* Primary luminous sine wave with filter glow */}
+                <path
+                  d="M0 32 Q 50 8, 100 32 T 200 32 T 300 32 T 400 32"
+                  stroke="url(#goldWaveGrad)"
+                  strokeWidth="3.2"
+                  filter="url(#waveGlow)"
+                  fill="none"
+                />
+              </svg>
 
-              {/* Floating Musical Notes Overlay */}
-              <div className="absolute inset-0 pointer-events-none flex items-center justify-around opacity-60 text-amber-200 text-xs sm:text-sm font-serif">
-                <span className="animate-bounce" style={{ animationDuration: '2.5s' }}>♪</span>
-                <span className="animate-pulse" style={{ animationDuration: '1.8s' }}>♫</span>
-                <span className="animate-bounce" style={{ animationDuration: '3.1s' }}>♬</span>
-                <span className="animate-pulse" style={{ animationDuration: '2.2s' }}>♪</span>
+              {/* Floating Golden Musical Notes (♪, ♫, ♬, 𝄞) hovering organically over the wave */}
+              <div className="absolute inset-0 pointer-events-none flex items-center justify-around px-3 text-amber-200/90 text-sm sm:text-base font-serif select-none">
+                <span className="transform -translate-y-2 opacity-80 animate-pulse" style={{ animationDuration: '3s' }}>♪</span>
+                <span className="transform translate-y-2 opacity-90 animate-bounce" style={{ animationDuration: '2.4s' }}>♫</span>
+                <span className="transform -translate-y-3 opacity-95 text-lg font-bold" style={{ textShadow: '0 0 10px #fbbf24' }}>𝄞</span>
+                <span className="transform translate-y-1 opacity-85 animate-pulse" style={{ animationDuration: '2.8s' }}>♬</span>
+                <span className="transform -translate-y-1 opacity-70 animate-bounce" style={{ animationDuration: '3.2s' }}>♪</span>
+                <span className="transform translate-y-3 opacity-80">𝄢</span>
+                <span className="transform -translate-y-2 opacity-90 animate-pulse" style={{ animationDuration: '2.1s' }}>♫</span>
               </div>
             </div>
           </div>

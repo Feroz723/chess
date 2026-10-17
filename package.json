@@ -4,11 +4,11 @@
   "description": "3D Wizard's Chess - React Three.js WebGL Edition with Node.js & Neon PostgreSQL Backend",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "node api.js && vite",
+    "build": "node api.js && vite build",
     "preview": "vite preview",
     "server": "node server.js",
-    "start": "node server.js"
+    "start": "node api.js && node server.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",
