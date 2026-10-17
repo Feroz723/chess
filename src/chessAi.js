@@ -423,9 +423,9 @@ function scoreMoveForOrdering(chess, m, aiColor) {
  * Quiescence Search: Searches tactical captures at leaf nodes
  * to eliminate the horizon effect.
  */
-function quiescence(chess, alpha, beta, isMaximizing, aiColor, depth = 0, maxQDepth = 2) {
+function quiescence(chess, alpha, beta, isMaximizing, aiColor, depth = 0, maxQDepth = 2, deadline = Infinity) {
   const standPat = evaluateBoard(chess, aiColor);
-  if (depth >= maxQDepth || isMate(chess) || isDraw(chess)) {
+  if (depth >= maxQDepth || isMate(chess) || isDraw(chess) || performance.now() >= deadline) {
     return standPat;
   }
 
@@ -441,8 +441,9 @@ function quiescence(chess, alpha, beta, isMaximizing, aiColor, depth = 0, maxQDe
     if (standPat > alpha) alpha = standPat;
 
     for (const move of topCaptures) {
+      if (performance.now() >= deadline) break;
       chess.move(move);
-      const score = quiescence(chess, alpha, beta, false, aiColor, depth + 1, maxQDepth);
+      const score = quiescence(chess, alpha, beta, false, aiColor, depth + 1, maxQDepth, deadline);
       chess.undo();
 
       if (score >= beta) return beta;
@@ -454,8 +455,9 @@ function quiescence(chess, alpha, beta, isMaximizing, aiColor, depth = 0, maxQDe
     if (standPat < beta) beta = standPat;
 
     for (const move of topCaptures) {
+      if (performance.now() >= deadline) break;
       chess.move(move);
-      const score = quiescence(chess, alpha, beta, true, aiColor, depth + 1, maxQDepth);
+      const score = quiescence(chess, alpha, beta, true, aiColor, depth + 1, maxQDepth, deadline);
       chess.undo();
 
       if (score <= alpha) return alpha;
@@ -466,11 +468,11 @@ function quiescence(chess, alpha, beta, isMaximizing, aiColor, depth = 0, maxQDe
 }
 
 /**
- * Minimax with Alpha-Beta Pruning and Beam Pruning for lightning-fast responsiveness
+ * Minimax with Alpha-Beta Pruning, Beam Pruning, and strict Time Budgeting
  */
-function minimax(chess, depth, alpha, beta, isMaximizing, aiColor, currentPly = 0) {
-  if (depth <= 0) {
-    return quiescence(chess, alpha, beta, isMaximizing, aiColor);
+function minimax(chess, depth, alpha, beta, isMaximizing, aiColor, currentPly = 0, deadline = Infinity) {
+  if (depth <= 0 || performance.now() >= deadline) {
+    return quiescence(chess, alpha, beta, isMaximizing, aiColor, 0, 2, deadline);
   }
 
   if (isMate(chess)) {
@@ -492,8 +494,9 @@ function minimax(chess, depth, alpha, beta, isMaximizing, aiColor, currentPly = 
   if (isMaximizing) {
     let maxEval = -Infinity;
     for (const move of searchMoves) {
+      if (performance.now() >= deadline) break;
       chess.move(move);
-      const evalScore = minimax(chess, depth - 1, alpha, beta, false, aiColor, currentPly + 1);
+      const evalScore = minimax(chess, depth - 1, alpha, beta, false, aiColor, currentPly + 1, deadline);
       chess.undo();
 
       maxEval = Math.max(maxEval, evalScore);
@@ -504,8 +507,9 @@ function minimax(chess, depth, alpha, beta, isMaximizing, aiColor, currentPly = 
   } else {
     let minEval = Infinity;
     for (const move of searchMoves) {
+      if (performance.now() >= deadline) break;
       chess.move(move);
-      const evalScore = minimax(chess, depth - 1, alpha, beta, true, aiColor, currentPly + 1);
+      const evalScore = minimax(chess, depth - 1, alpha, beta, true, aiColor, currentPly + 1, deadline);
       chess.undo();
 
       minEval = Math.min(minEval, evalScore);
@@ -573,15 +577,19 @@ export function findBestAiMove(chess, difficulty = 'medium', aiColor = null) {
   // 4. Move Ordering
   legalMoves.sort((a, b) => scoreMoveForOrdering(chess, b, effectiveColor) - scoreMoveForOrdering(chess, a, effectiveColor));
 
-  // 5. Minimax Search over root moves
+  // 5. Minimax Search over root moves with strict 150ms time budget
   const scoredMoves = [];
   let alpha = -Infinity;
   const beta = Infinity;
+  const deadline = performance.now() + 150; // Hard time-budget guarantees zero UI stutter
 
   for (const move of legalMoves) {
+    if (performance.now() >= deadline && scoredMoves.length > 0) {
+      break;
+    }
     chess.move(move);
     // Opponent will minimize our score on their turn
-    let score = minimax(chess, searchDepth - 1, alpha, beta, false, effectiveColor, 1);
+    let score = minimax(chess, searchDepth - 1, alpha, beta, false, effectiveColor, 1, deadline);
     chess.undo();
 
     // Reward moves delivering safe check

@@ -372,6 +372,17 @@ function chessIsGameOver(chess) {
   return false;
 }
 
+export function resolveAssetUrl(path) {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('data:') || path.startsWith('blob:')) {
+    return path;
+  }
+  const base = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL) ? import.meta.env.BASE_URL : '/';
+  const cleanPath = path.replace(/^\/+/, '');
+  const cleanBase = base.endsWith('/') ? base : `${base}/`;
+  return `${cleanBase}${cleanPath}`;
+}
+
 const AUDIO_TRACKS = {
   landing: '/music/two_kingdoms_poised.mp3',
   landingTitle: 'Two Kingdoms Poised',
@@ -397,6 +408,7 @@ class CathedralAudioController {
     this.currentTrackTitle = AUDIO_TRACKS.landingTitle;
     this.musicPlaying = false;
     this.wantsMusic = true;
+    this._gestureUnlockArmed = false;
 
     // Native HTML5 Audio for continuous, looping MP3 playback
     const existingAudio = typeof document !== 'undefined' ? document.getElementById('cathedral-bgm') : null;
@@ -406,7 +418,7 @@ class CathedralAudioController {
       this.audio.volume = this.musicVolume;
       this.audio.preload = 'auto';
       if (!this.audio.src) {
-        this.audio.src = AUDIO_TRACKS.landing;
+        this.audio.src = resolveAssetUrl(AUDIO_TRACKS.landing);
       }
     }
   }
@@ -433,17 +445,60 @@ class CathedralAudioController {
     }
   }
 
+  armGestureUnlock(onStateChange) {
+    if (this._gestureUnlockArmed) return;
+    this._gestureUnlockArmed = true;
+
+    const unlock = () => {
+      this.ensureCtx();
+      const a = this.getAudio();
+      if (a && this.wantsMusic && !this.isMuted) {
+        a.play().then(() => {
+          this.musicPlaying = true;
+          if (onStateChange) onStateChange(true, this.currentTrackTitle);
+          cleanup();
+        }).catch(() => {});
+      }
+    };
+
+    const cleanup = () => {
+      this._gestureUnlockArmed = false;
+      ['pointerdown', 'touchstart', 'click', 'keydown'].forEach(evt => {
+        window.removeEventListener(evt, unlock, { capture: true });
+      });
+    };
+
+    ['pointerdown', 'touchstart', 'click', 'keydown'].forEach(evt => {
+      window.addEventListener(evt, unlock, { capture: true, once: true, passive: true });
+    });
+  }
+
   playTrack(src, title, loop = true, onStateChange) {
     const audio = this.getAudio();
     if (!audio) return;
     this.ensureCtx();
-    this.currentTrackSrc = src;
+    const resolvedSrc = resolveAssetUrl(src);
+    this.currentTrackSrc = resolvedSrc;
     this.currentTrackTitle = title || '';
 
-    const currentSrc = audio.src ? new URL(audio.src, window.location.href).pathname : '';
-    if (currentSrc !== src) {
-      audio.src = src;
+    let needsLoad = false;
+    try {
+      const currentUrl = audio.src ? new URL(audio.src, window.location.href).href : '';
+      const targetUrl = new URL(resolvedSrc, window.location.href).href;
+      if (currentUrl !== targetUrl) {
+        audio.src = resolvedSrc;
+        needsLoad = true;
+      }
+    } catch (e) {
+      if (audio.src !== resolvedSrc) {
+        audio.src = resolvedSrc;
+        needsLoad = true;
+      }
+    }
+
+    if (needsLoad) {
       audio.currentTime = 0;
+      audio.load();
     }
 
     audio.loop = loop;
@@ -459,6 +514,7 @@ class CathedralAudioController {
         }).catch(() => {
           this.musicPlaying = false;
           if (onStateChange) onStateChange(false, this.currentTrackTitle);
+          this.armGestureUnlock(onStateChange);
         });
       }
     } else {
@@ -481,14 +537,16 @@ class CathedralAudioController {
     const targetFile = themeObj.musicFile;
     const fallbackFile = themeObj.fallbackMusicFile || '/music/checkmate_at_dawn.mp3';
 
-    // Set an error listener on audio element in case the user has not placed their new Suno MP3 yet
+    // Set an error listener on audio element in case track fails to load
     const audio = this.getAudio();
     if (audio) {
       const errorHandler = () => {
         audio.removeEventListener('error', errorHandler);
-        if (fallbackFile && audio.src && audio.src.indexOf(fallbackFile) === -1) {
-          audio.src = fallbackFile;
+        const resolvedFallback = resolveAssetUrl(fallbackFile);
+        if (resolvedFallback && audio.src && !audio.src.includes(fallbackFile)) {
+          audio.src = resolvedFallback;
           audio.currentTime = 0;
+          audio.load();
           if (this.wantsMusic && !this.isMuted) {
             audio.play().then(() => {
               this.musicPlaying = true;
@@ -497,7 +555,7 @@ class CathedralAudioController {
           }
         }
       };
-      audio.removeEventListener('error', audio._lastErrorHandler);
+      if (audio._lastErrorHandler) audio.removeEventListener('error', audio._lastErrorHandler);
       audio._lastErrorHandler = errorHandler;
       audio.addEventListener('error', errorHandler, { once: true });
     }
@@ -755,7 +813,7 @@ export default function App() {
   const [royalTheme, setRoyalTheme] = useState('sanctum');
   const [camPreset, setCamPreset] = useState('orbit');
   const [sfxEnabled, setSfxEnabled] = useState(true);
-  const [musicPlaying, setMusicPlaying] = useState(true);
+  const [musicPlaying, setMusicPlaying] = useState(false);
   const [musicVolume, setMusicVolume] = useState(65);
   const [isMuted, setIsMuted] = useState(false);
   const [showVolumePopup, setShowVolumePopup] = useState(false);
@@ -1152,24 +1210,36 @@ export default function App() {
           a.muted = false;
           a.volume = audioCtrl.musicVolume;
         }
-        if (audioCtrl.wantsMusic && (a.paused || !audioCtrl.musicPlaying)) {
+        if (audioCtrl.wantsMusic && a.paused) {
           const p = a.play();
           if (p !== undefined) {
             p.then(() => {
               setMusicPlaying(true);
               audioCtrl.musicPlaying = true;
+              unlockEvents.forEach(evt => {
+                window.removeEventListener(evt, unlockAudio, { capture: true });
+                document.removeEventListener(evt, unlockAudio, { capture: true });
+              });
             }).catch(() => {});
           }
         }
       }
     };
 
-    // Unlock on ANY user gesture anywhere on window/document with capture: true
+    // Unlock on user gesture anywhere on window/document with capture: true
     const unlockEvents = ['pointerdown', 'mousedown', 'touchstart', 'keydown', 'click'];
     unlockEvents.forEach(evt => {
       window.addEventListener(evt, unlockAudio, { passive: true, capture: true });
       document.addEventListener(evt, unlockAudio, { passive: true, capture: true });
     });
+
+    const a = audioCtrl.getAudio();
+    const handleAudioPlay = () => setMusicPlaying(true);
+    const handleAudioPause = () => setMusicPlaying(false);
+    if (a) {
+      a.addEventListener('play', handleAudioPlay);
+      a.addEventListener('pause', handleAudioPause);
+    }
 
     // Try unlocking immediately
     unlockAudio();
@@ -1186,6 +1256,10 @@ export default function App() {
         window.removeEventListener(evt, unlockAudio, { capture: true });
         document.removeEventListener(evt, unlockAudio, { capture: true });
       });
+      if (a) {
+        a.removeEventListener('play', handleAudioPlay);
+        a.removeEventListener('pause', handleAudioPause);
+      }
       clearInterval(presenceInterval);
     };
   }, []);
@@ -1288,6 +1362,8 @@ export default function App() {
     renderer.shadowMap.enabled = !isMobileDevice;
     if (!isMobileDevice) {
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.shadowMap.autoUpdate = false;
+      renderer.shadowMap.needsUpdate = true;
     }
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.42;
@@ -2832,6 +2908,9 @@ export default function App() {
         if (eng.rebuildPieces) {
           eng.rebuildPieces();
         }
+        if (renderer && renderer.shadowMap && renderer.shadowMap.enabled) {
+          renderer.shadowMap.needsUpdate = true;
+        }
       } catch (err) {
         console.warn('[Chess 3D] Error applying theme:', err);
       }
@@ -2842,6 +2921,8 @@ export default function App() {
     };
 
     const shardGeo = new THREE.DodecahedronGeometry(0.1, 0);
+    const sharedSparkGeo = new THREE.DodecahedronGeometry(0.045, 0);
+    const sharedSoulSparkGeo = new THREE.OctahedronGeometry(0.042, 0);
 
     const impactFlashLight = new THREE.PointLight(0xfff5e4, 0, 14, 2);
     impactFlashLight.position.set(0, 1.2, 0);
@@ -2875,9 +2956,10 @@ export default function App() {
         blending: THREE.AdditiveBlending,
         transparent: true
       });
+      sparkMat.userData = { isTransient: true };
 
-      // 1. Faceted Stone/Crystal Shards (Gallery Image 2)
-      for (let i = 0; i < 28; i++) {
+      // 1. Faceted Stone/Crystal Shards (Fast physics, no shadow map bloat)
+      for (let i = 0; i < 24; i++) {
         const shard = new THREE.Mesh(shardGeo, i % 3 === 0 ? accent : mat);
         const s = 0.5 + Math.random() * 0.8;
         shard.scale.set(s, s, s);
@@ -2886,7 +2968,7 @@ export default function App() {
           0.35 + Math.random() * 0.95,
           worldPos.z + (Math.random() - 0.5) * 0.4
         );
-        shard.castShadow = true;
+        shard.castShadow = false; // Prevents massive shadow pass spike
         scene.add(shard);
         const ang = Math.random() * Math.PI * 2;
         const spd = 2.2 + Math.random() * 4.2;
@@ -2898,10 +2980,9 @@ export default function App() {
         });
       }
 
-      // 2. High-Speed Arcane Burst Sparks
-      const sparkGeo = new THREE.DodecahedronGeometry(0.045, 0);
-      for (let j = 0; j < 22; j++) {
-        const spark = new THREE.Mesh(sparkGeo, sparkMat);
+      // 2. High-Speed Arcane Burst Sparks (Reusing sharedSparkGeo)
+      for (let j = 0; j < 18; j++) {
+        const spark = new THREE.Mesh(sharedSparkGeo, sparkMat);
         spark.position.set(worldPos.x, 0.45, worldPos.z);
         scene.add(spark);
         const ang = Math.random() * Math.PI * 2;
@@ -3001,7 +3082,6 @@ export default function App() {
 
       // 3. Swirling Ascending Light Sparkles (Theme sparkles ascending with the soul)
       const sparkles = [];
-      const sparkGeo = new THREE.OctahedronGeometry(0.042, 0);
       const sparkMat = new THREE.MeshBasicMaterial({
         color: sparkleColorHex,
         transparent: true,
@@ -3012,8 +3092,8 @@ export default function App() {
       sparkMat.userData = { baseOpacity: 0.92 };
       soulMats.push(sparkMat);
 
-      for (let s = 0; s < 32; s++) {
-        const sparkMesh = new THREE.Mesh(sparkGeo, sparkMat);
+      for (let s = 0; s < 16; s++) {
+        const sparkMesh = new THREE.Mesh(sharedSoulSparkGeo, sparkMat);
         const radius = 0.16 + Math.random() * 0.42;
         const angle = Math.random() * Math.PI * 2;
         const rotSpeed = (Math.random() > 0.5 ? 1 : -1) * (2.8 + Math.random() * 4.2);
@@ -3102,6 +3182,9 @@ export default function App() {
 
       // Fluid, hitch-free piece motion interpolated synchronously before render
       if (eng.activeMoveAnim) {
+        if (renderer.shadowMap.enabled) {
+          renderer.shadowMap.needsUpdate = true;
+        }
         const a = eng.activeMoveAnim;
         const now = performance.now();
         const t = Math.min((now - a.startTime) / a.duration, 1);
@@ -3140,6 +3223,9 @@ export default function App() {
 
           eng.activeMoveAnim = null;
           eng.isAnimating = false;
+          if (renderer.shadowMap.enabled) {
+            renderer.shadowMap.needsUpdate = true;
+          }
           if (chessInCheck(eng.chess)) audioCtrl.playCheck();
           if (a.onDone) a.onDone();
         }
@@ -3165,6 +3251,9 @@ export default function App() {
         f.life -= dt * 0.55;
         f.mesh.scale.setScalar(Math.max(f.life, 0.01));
         if (f.life <= 0) {
+          if (f.mesh.material && f.mesh.material.userData && f.mesh.material.userData.isTransient) {
+            try { f.mesh.material.dispose(); } catch (e) {}
+          }
           scene.remove(f.mesh);
           eng.activeFragments.splice(i, 1);
         }
@@ -3179,6 +3268,9 @@ export default function App() {
           sw.mesh.scale.set(sw.scale, sw.scale, sw.scale);
           sw.mesh.material.opacity = Math.max(0, sw.life);
           if (sw.life <= 0) {
+            if (sw.mesh.material) {
+              try { sw.mesh.material.dispose(); } catch (e) {}
+            }
             scene.remove(sw.mesh);
             eng.activeShockwaves.splice(i, 1);
           }
@@ -3192,6 +3284,11 @@ export default function App() {
           s.progress += dt / s.duration;
           const p = s.progress;
           if (p >= 1) {
+            if (s.materials) {
+              s.materials.forEach(mat => {
+                try { mat.dispose(); } catch (e) {}
+              });
+            }
             scene.remove(s.group);
             eng.activeSouls.splice(i, 1);
             continue;
