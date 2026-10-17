@@ -815,64 +815,10 @@ export default function App() {
 
   // Tactical Notice Board (Alternative Move Control) State
   const [selectedSquare, setSelectedSquare] = useState(null);
-  const [noticeBoardOpen, setNoticeBoardOpen] = useState(false);
+  const [noticeBoardOpen, setNoticeBoardOpen] = useState(true);
   const [noticeTab, setNoticeTab] = useState('board'); // 'board' (2D Parchment Grid) | 'moves' (Legal Moves Roster)
   const [commandInput, setCommandInput] = useState('');
   const [commandError, setCommandError] = useState('');
-  // Mobile Landscape / Wide Battle Mode Detection & States
-  const [isPortraitOnMobile, setIsPortraitOnMobile] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    const isTouch = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-    return isTouch && window.innerHeight > window.innerWidth && window.innerWidth < 1024;
-  });
-  const [dismissRotatePrompt, setDismissRotatePrompt] = useState(false);
-  const [isMobileLandscape, setIsMobileLandscape] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    const isTouch = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-    return isTouch && window.innerWidth > window.innerHeight && (window.innerHeight < 650 || window.innerWidth <= 1180);
-  });
-  const [noticeBoardMinimizedInLandscape, setNoticeBoardMinimizedInLandscape] = useState(false);
-
-  useEffect(() => {
-    const handleOrientationCheck = () => {
-      if (typeof window === 'undefined') return;
-      const isTouch = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      const portrait = isTouch && h > w && w < 1024;
-      const landscape = isTouch && w > h && (h < 650 || w <= 1180);
-      setIsPortraitOnMobile(portrait);
-      setIsMobileLandscape(landscape);
-
-      const eng = engineRef.current;
-      if (eng && eng.camera) {
-        if (currentScreenRef.current !== 'game') {
-          if (w >= 1024) {
-            eng.camera.setViewOffset(w, h, -Math.round(w * 0.15), 0, w, h);
-          } else {
-            eng.camera.clearViewOffset();
-          }
-        } else {
-          if (landscape && !noticeBoardMinimizedInLandscape) {
-            eng.camera.fov = h < 480 ? 52 : 46;
-            eng.camera.setViewOffset(w, h, Math.round(w * 0.20), 0, w, h);
-          } else {
-            eng.camera.fov = w < 640 ? 54 : w < 1024 ? 46 : 42;
-            eng.camera.clearViewOffset();
-          }
-        }
-        eng.camera.updateProjectionMatrix();
-      }
-    };
-
-    window.addEventListener('resize', handleOrientationCheck);
-    window.addEventListener('orientationchange', handleOrientationCheck);
-    handleOrientationCheck();
-    return () => {
-      window.removeEventListener('resize', handleOrientationCheck);
-      window.removeEventListener('orientationchange', handleOrientationCheck);
-    };
-  }, [noticeBoardMinimizedInLandscape]);
 
   // Sanctum Registry State (Clean Player-Facing)
   const [sanctumModalOpen, setSanctumModalOpen] = useState(false);
@@ -937,36 +883,28 @@ export default function App() {
     }
   }, [isGameActive]);
 
-  // Ensure 3D board background is positioned correctly across screens & landscape orientations
+  // Ensure 3D board background is always auto-orbiting and positioned on the right side on the Home screen
   useEffect(() => {
     currentScreenRef.current = currentScreen;
     const eng = engineRef.current;
-    if (!eng || !eng.camera) return;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-
+    if (!eng) return;
     if (currentScreen !== 'game') {
       eng.autoOrbit = true;
       eng.targetPhi = 0.92;
       eng.targetRadius = 16.0;
-      if (w >= 1024) {
+      if (eng.camera && window.innerWidth >= 1024) {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
         eng.camera.setViewOffset(w, h, -Math.round(w * 0.15), 0, w, h);
-      } else {
-        eng.camera.clearViewOffset();
+        eng.camera.updateProjectionMatrix();
       }
     } else {
-      const isTouch = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window) || navigator.maxTouchPoints > 0);
-      const isLandscape = isTouch && w > h && (h < 650 || w <= 1180);
-      if (isLandscape && !noticeBoardMinimizedInLandscape) {
-        eng.camera.fov = h < 480 ? 52 : 46;
-        eng.camera.setViewOffset(w, h, Math.round(w * 0.20), 0, w, h);
-      } else {
-        eng.camera.fov = w < 640 ? 54 : w < 1024 ? 46 : 42;
+      if (eng.camera) {
         eng.camera.clearViewOffset();
+        eng.camera.updateProjectionMatrix();
       }
     }
-    eng.camera.updateProjectionMatrix();
-  }, [currentScreen, isMobileLandscape, noticeBoardMinimizedInLandscape]);
+  }, [currentScreen]);
 
   // Remove any legacy database connection strings from local storage
   useEffect(() => {
@@ -3572,8 +3510,8 @@ export default function App() {
       const w = container.clientWidth;
       const h = container.clientHeight;
       camera.aspect = w / h;
-      const isTouch = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window) || navigator.maxTouchPoints > 0);
-      const isLandscape = (isTouch || w <= 1180) && w > h;
+      const isMobile = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (w <= 850 && h <= 450));
+      const isLandscape = isMobile && w > h;
 
       if (currentScreenRef.current !== 'game' && w >= 1024) {
         camera.fov = 42;
@@ -4556,12 +4494,8 @@ export default function App() {
           {/* Top Floating Navigation Bar (Active War HUD vs Full Setup Header) */}
           {isGameActive ? (
             /* Step 2 Minimalist Active War Bar: ONLY Camera Presets, Notice Board, Offer Draw, Resign, Grand Hall (Confirm) & Volume */
-            <header className={`fixed top-1.5 sm:top-3 z-20 pointer-events-none transition-all duration-300 ${
-              isMobileLandscape && !noticeBoardMinimizedInLandscape
-                ? 'left-2 max-w-[55%] w-auto'
-                : 'left-1/2 -translate-x-1/2 w-[96%] max-w-4xl'
-            }`}>
-              <div className="bg-[#14101e]/90 backdrop-blur-xl border border-amber-400/30 shadow-[0_8px_32px_rgba(0,0,0,0.7)] rounded-full px-2.5 sm:px-3 py-1 sm:py-1.5 flex items-center justify-between gap-1.5 sm:gap-2 pointer-events-auto">
+            <header className="fixed top-2 sm:top-4 left-1/2 -translate-x-1/2 z-20 w-[96%] max-w-4xl pointer-events-none transition-all duration-300">
+              <div className="bg-[#14101e]/90 backdrop-blur-xl border border-amber-400/30 shadow-[0_8px_32px_rgba(0,0,0,0.7)] rounded-full px-3 py-1.5 flex items-center justify-between gap-2 pointer-events-auto">
                 {/* Camera Presets: White, Black, Overhead, Orbit */}
                 <div className="flex items-center gap-1 bg-black/40 p-1 rounded-full border border-white/10">
                   {CAMERA_PRESETS.map(cam => (
@@ -4701,23 +4635,18 @@ export default function App() {
             </header>
           ) : (
             /* Full Setup Navigation Bar (Pre-Match / Game Over) */
-            <header className={`fixed top-1.5 sm:top-3 z-20 pointer-events-none transition-all duration-300 ${
-              isMobileLandscape && !noticeBoardMinimizedInLandscape
-                ? 'left-2 max-w-[55%] w-auto'
-                : 'left-1/2 -translate-x-1/2 w-[97%] max-w-7xl'
-            }`}>
-            <div className="bg-[#161320]/85 backdrop-blur-xl border border-white/15 shadow-2xl rounded-2xl sm:rounded-full px-2.5 sm:px-4 py-1.5 sm:py-2 flex items-center justify-between gap-1 sm:gap-2 pointer-events-auto overflow-x-auto no-scrollbar">
+            <header className="fixed top-2 sm:top-4 left-1/2 -translate-x-1/2 z-20 w-[97%] max-w-7xl pointer-events-none transition-all duration-300">
+            <div className="bg-[#161320]/80 backdrop-blur-xl border border-white/15 shadow-2xl rounded-2xl sm:rounded-full px-2.5 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 pointer-events-auto">
               
               {/* Prominent Back to Home Button */}
-              <div className="flex items-center gap-1.5 sm:gap-2 pl-0.5 sm:pl-1 pr-1.5 sm:pr-2.5 border-r border-white/10 shrink-0">
+              <div className="flex items-center gap-2 pl-1 pr-2.5 border-r border-white/10">
                 <button
                   onClick={handleReturnToLobby}
-                  className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-amber-400/20 hover:bg-amber-400/35 border border-amber-400/60 text-amber-200 text-xs font-extrabold transition-all shadow-md origin-spring cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-400/20 hover:bg-amber-400/35 border border-amber-400/60 text-amber-200 text-xs font-extrabold transition-all shadow-md origin-spring cursor-pointer"
                   title="Back to Home Screen"
                 >
-                  <ArrowLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-300 stroke-[2.5]" />
-                  <span className="hidden sm:inline">Back to Home</span>
-                  <span className="sm:hidden">Home</span>
+                  <ArrowLeft className="w-4 h-4 text-amber-300 stroke-[2.5]" />
+                  <span>Back to Home</span>
                 </button>
                 <div className="hidden lg:block">
                   <h1 className="font-serif text-xs sm:text-sm font-bold tracking-wider text-white leading-none">
@@ -4729,9 +4658,9 @@ export default function App() {
                 </div>
               </div>
 
-          {/* Game Mode Pills with Lock when Match in Progress (Desktop wide view) */}
+          {/* Game Mode Pills with Lock when Match in Progress */}
           <div
-            className="hidden xl:flex items-center gap-1 bg-black/35 p-1 rounded-full border border-white/10 origin-spring shrink-0"
+            className="flex items-center gap-1 bg-black/35 p-1 rounded-full border border-white/10 origin-spring"
             title={isGameActive ? "Match in progress! Reset board to switch modes." : "Choose Game Mode"}
           >
             <button
@@ -4762,9 +4691,9 @@ export default function App() {
             </button>
           </div>
 
-          {/* AI Difficulty & Side Selector (Desktop wide view) */}
+          {/* AI Difficulty & Side Selector (When vs AI mode) */}
           {gameMode === 'ai' && (
-            <div className="hidden lg:flex items-center gap-1.5 bg-black/35 p-1 rounded-full border border-amber-400/30 shrink-0">
+            <div className="flex items-center gap-1.5 bg-black/35 p-1 rounded-full border border-amber-400/30">
               {/* Play Side (White vs Black) */}
               <div className="flex items-center bg-black/40 p-0.5 rounded-full border border-white/10 text-xs">
                 <button
@@ -4819,8 +4748,8 @@ export default function App() {
             </div>
           )}
 
-          {/* Match Time Control Selector (Desktop wide view) */}
-          <div className="hidden xl:flex items-center gap-1 bg-black/35 p-1 rounded-full border border-amber-400/30 text-xs shrink-0">
+          {/* Match Time Control Selector */}
+          <div className="flex items-center gap-1 bg-black/35 p-1 rounded-full border border-amber-400/30 text-xs">
             <span className="hidden sm:inline text-[11px] font-bold text-amber-300 uppercase tracking-wider pl-1.5 pr-0.5">
               Timer:
             </span>
@@ -5260,7 +5189,6 @@ export default function App() {
       )}
 
       {/* Bottom Telemetry Dock: Turn Indicator, Clocks, Move History & Captured Pieces */}
-      {(!isMobileLandscape || noticeBoardMinimizedInLandscape) && (
       <footer className="fixed bottom-2 sm:bottom-4 left-1/2 -translate-x-1/2 z-20 w-[97%] max-w-5xl pointer-events-none transition-all duration-300">
         <div className="bg-[#161320]/85 backdrop-blur-xl border border-white/15 shadow-2xl rounded-2xl sm:rounded-3xl px-3.5 sm:px-5 py-2 flex flex-col sm:flex-row items-center justify-between gap-2 pointer-events-auto">
           
@@ -5360,7 +5288,6 @@ export default function App() {
           </div>
         </div>
       </footer>
-      )}
 
       {/* Floating Check Alert during active match */}
       {isGameActive && inCheck && !gameOverText && (
@@ -5383,77 +5310,27 @@ export default function App() {
       )}
 
       {/* Tactical Notice Board (Alternative Move Control Center Beside the Board) */}
-      {(isMobileLandscape ? !noticeBoardMinimizedInLandscape : noticeBoardOpen) ? (
-        <>
-          {/* Mobile backdrop to easily close when tapping outside in portrait mode */}
-          {!isMobileLandscape && (
-            <div
-              className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm sm:hidden pointer-events-auto"
-              onClick={() => { setNoticeBoardOpen(false); audioCtrl.playSelect(); }}
-            />
-          )}
-          <aside className={
-            isMobileLandscape
-              ? "fixed right-1 sm:right-2 top-1 sm:top-2 bottom-1 sm:bottom-2 z-20 w-[43%] max-w-[420px] bg-[#14101e]/96 backdrop-blur-xl border border-amber-500/35 rounded-2xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto animate-in slide-in-from-right-4 duration-200"
-              : "fixed inset-x-2 bottom-3 max-h-[82vh] sm:inset-x-auto sm:bottom-auto sm:right-5 sm:top-24 z-40 sm:z-20 w-auto sm:w-84 sm:max-h-[calc(100vh-9.5rem)] bg-[#14101e]/95 backdrop-blur-xl border border-amber-500/35 rounded-2xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto"
-          }>
-            {/* Notice Board Top Plaque */}
-            <div className="px-3 py-1.5 sm:py-2 bg-gradient-to-r from-amber-950/70 via-purple-950/60 to-black/80 border-b border-amber-500/25 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <ScrollText className="w-4 h-4 text-amber-300" />
-                <div>
-                  <h3 className="font-serif text-xs font-bold text-amber-100 tracking-wider flex items-center gap-1.5">
-                    COMMAND NOTICE BOARD
-                    <span className="text-[9px] font-sans px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 border border-amber-400/30">ALT MOVE</span>
-                  </h3>
-                </div>
+      {noticeBoardOpen ? (
+        <aside className="fixed right-2 sm:right-5 top-20 sm:top-24 z-20 w-72 sm:w-84 max-h-[calc(100vh-9.5rem)] bg-[#14101e]/92 backdrop-blur-xl border border-amber-500/30 rounded-2xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto">
+          {/* Notice Board Top Plaque */}
+          <div className="px-3 py-2 bg-gradient-to-r from-amber-950/70 via-purple-950/60 to-black/80 border-b border-amber-500/25 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ScrollText className="w-4 h-4 text-amber-300" />
+              <div>
+                <h3 className="font-serif text-xs font-bold text-amber-100 tracking-wider flex items-center gap-1.5">
+                  COMMAND NOTICE BOARD
+                  <span className="text-[9px] font-sans px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 border border-amber-400/30">ALT MOVE</span>
+                </h3>
               </div>
-              <button
-                onClick={() => {
-                  if (isMobileLandscape) {
-                    setNoticeBoardMinimizedInLandscape(true);
-                  } else {
-                    setNoticeBoardOpen(false);
-                  }
-                  audioCtrl.playSelect();
-                }}
-                className="p-1 rounded-md hover:bg-white/10 text-gray-400 hover:text-white transition cursor-pointer"
-                title={isMobileLandscape ? "Minimize Notice Board (Full 3D)" : "Minimize Notice Board"}
-              >
-                {isMobileLandscape ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-              </button>
             </div>
-
-            {/* In Landscape Wide Mode: Integrated Clocks, Active Turn & Captured Pieces */}
-            {isMobileLandscape && (
-              <div className="px-3 py-1.5 bg-black/40 border-b border-white/5 flex items-center justify-between text-xs shrink-0">
-                <div className="flex items-center gap-1.5">
-                  <div className={`w-2.5 h-2.5 rounded-full ${turnColor === 'w' ? 'bg-amber-300 shadow-[0_0_8px_#fde047]' : 'bg-purple-400 shadow-[0_0_8px_#c084fc]'}`} />
-                  <span className="font-bold text-white text-[11px]">
-                    {turnColor === 'w' ? 'White' : (gameMode === 'ai' ? 'Obsidian AI' : 'Black')}
-                  </span>
-                  {(inCheck || gameOverText) && (
-                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-red-500/30 text-red-300 font-bold uppercase animate-pulse">
-                      {gameOverText || 'CHECK'}
-                    </span>
-                  )}
-                </div>
-
-                {isTimedMatch ? (
-                  <div className="flex items-center gap-2 font-mono text-[11px]">
-                    <span className={turnColor === 'w' ? 'text-amber-300 font-bold' : 'text-gray-400'}>
-                      ♔ {Math.floor(whiteClockSec / 60)}:{(whiteClockSec % 60).toString().padStart(2, '0')}
-                    </span>
-                    <span className="text-gray-600">|</span>
-                    <span className={turnColor === 'b' ? 'text-purple-300 font-bold' : 'text-gray-400'}>
-                      ♚ {Math.floor(blackClockSec / 60)}:{(blackClockSec % 60).toString().padStart(2, '0')}
-                    </span>
-                  </div>
-                ) : (
-                  <span className="text-[10px] text-gray-400 font-mono">Untimed</span>
-                )}
-              </div>
-            )}
+            <button
+              onClick={() => { setNoticeBoardOpen(false); audioCtrl.playSelect(); }}
+              className="p-1 rounded-md hover:bg-white/10 text-gray-400 hover:text-white transition"
+              title="Minimize Notice Board"
+            >
+              <ChevronDown className="w-4 h-4" />
+            </button>
+          </div>
 
           {/* Tab Selector */}
           <div className="p-2 pb-0 flex gap-1 border-b border-white/5 bg-black/25">
@@ -5648,100 +5525,16 @@ export default function App() {
             </div>
           </div>
         </aside>
-        </>
       ) : (
         /* Minimized Floating Button */
         <button
-          onClick={() => {
-            if (isMobileLandscape) {
-              setNoticeBoardMinimizedInLandscape(false);
-            } else {
-              setNoticeBoardOpen(true);
-            }
-            audioCtrl.playSelect();
-          }}
-          className={
-            isMobileLandscape
-              ? "fixed right-2 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-1 px-2 py-3 rounded-2xl bg-[#161320]/95 backdrop-blur-md border border-amber-400/60 text-amber-200 text-xs font-bold shadow-2xl hover:bg-purple-950/80 transition active:scale-95 cursor-pointer pointer-events-auto"
-              : "fixed right-3 sm:right-6 bottom-16 sm:bottom-auto sm:top-28 z-20 flex items-center gap-2 px-3 py-2 rounded-full bg-[#161320]/90 backdrop-blur-md border border-amber-400/50 text-amber-200 text-xs font-semibold shadow-2xl hover:bg-purple-950/80 transition active:scale-95 cursor-pointer pointer-events-auto"
-          }
+          onClick={() => { setNoticeBoardOpen(true); audioCtrl.playSelect(); }}
+          className="fixed right-3 sm:right-6 top-24 sm:top-28 z-20 flex items-center gap-2 px-3 py-2 rounded-full bg-[#161320]/90 backdrop-blur-md border border-amber-400/50 text-amber-200 text-xs font-semibold shadow-2xl hover:bg-purple-950/80 transition"
           title="Open Tactical Move Notice Board"
         >
           <ScrollText className="w-4 h-4 text-amber-300" />
-          {isMobileLandscape ? (
-            <span className="text-[10px] uppercase font-bold tracking-wider [writing-mode:vertical-lr] rotate-180">Notice Board</span>
-          ) : (
-            <>
-              <span className="hidden xs:inline">Notice Board</span>
-              <span className="xs:hidden">Board</span>
-            </>
-          )}
+          <span>Notice Board (Alt Move)</span>
         </button>
-      )}
-
-      {/* Mobile Portrait "Rotate to Wide View" Cathedral Prompt */}
-      {currentScreen === 'game' && isPortraitOnMobile && !dismissRotatePrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-300 pointer-events-auto">
-          <div className="relative w-full max-w-sm bg-gradient-to-br from-[#1c1236] via-[#120a22] to-[#080512] border-2 border-amber-400/60 rounded-3xl p-6 shadow-[0_20px_70px_rgba(0,0,0,0.95),0_0_50px_rgba(245,158,11,0.25)] text-center text-white flex flex-col items-center ring-1 ring-amber-400/30">
-            {/* Animated Rotating Phone Graphic */}
-            <div className="relative w-20 h-20 mb-3 flex items-center justify-center">
-              <div className="absolute inset-0 rounded-full bg-amber-400/10 animate-ping" />
-              <div className="w-16 h-16 rounded-2xl border-2 border-amber-400 flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.5)] animate-bounce">
-                <div className="w-8 h-12 rounded-lg border-2 border-amber-200/80 bg-amber-400/20 flex flex-col items-center justify-between py-1 shadow-inner">
-                  <span className="w-2.5 h-0.5 rounded-full bg-amber-300" />
-                  <span className="text-sm font-serif text-amber-200 leading-none">♔</span>
-                  <span className="w-1.5 h-1.5 rounded-full border border-amber-300" />
-                </div>
-              </div>
-            </div>
-
-            <h3 className="font-serif text-xl font-black text-amber-200 tracking-wide mb-1">
-              Rotate Device to Wide View
-            </h3>
-            <p className="text-xs text-amber-100/80 mb-4 leading-relaxed">
-              Turn your screen horizontally for the optimal battlefield view:
-            </p>
-
-            {/* Feature Highlights */}
-            <div className="w-full bg-black/45 rounded-2xl p-3 mb-5 border border-amber-500/25 flex flex-col gap-2.5 text-left text-xs">
-              <div className="flex items-center gap-2.5 text-amber-300 font-semibold">
-                <span className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_#fbbf24]" />
-                <span>3D Chess Arena on the LEFT</span>
-              </div>
-              <div className="flex items-center gap-2.5 text-purple-300 font-semibold">
-                <span className="w-2 h-2 rounded-full bg-purple-400 shadow-[0_0_8px_#c084fc]" />
-                <span>Command Notice Board on the RIGHT</span>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex flex-col gap-2.5 w-full">
-              <button
-                type="button"
-                onClick={() => {
-                  try {
-                    if (window.screen?.orientation?.lock) {
-                      window.screen.orientation.lock('landscape').catch(() => {});
-                    }
-                  } catch (e) {}
-                  setDismissRotatePrompt(true);
-                }}
-                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 text-black font-extrabold text-xs shadow-lg hover:brightness-110 transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                <RefreshCw className="w-3.5 h-3.5 text-black animate-spin" />
-                <span>Rotate Screen ↻</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setDismissRotatePrompt(true)}
-                className="text-xs text-gray-400 hover:text-white py-1 transition underline cursor-pointer"
-              >
-                Continue in Portrait
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Realm Vault Selection Modal for In-Game / Pre-Match Header */}
