@@ -364,7 +364,7 @@ export function SimpleMainMenu({
       <main className="w-full max-w-md sm:max-w-lg lg:max-w-[480px] xl:max-w-[510px] mx-auto lg:mx-0 lg:ml-2 xl:ml-6 pointer-events-auto my-auto py-1 sm:py-2 shrink-0 animate-in slide-in-from-left-6 fade-in duration-300">
         
         {/* Royal Glassmorphism Chamber Card */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-[#1b1233]/75 via-[#100a20]/80 to-[#070512]/90 backdrop-blur-2xl border border-amber-400/40 rounded-3xl p-4 sm:p-5 shadow-[0_25px_80px_rgba(0,0,0,0.88),0_0_50px_rgba(245,158,11,0.15),inset_0_1px_2px_rgba(255,255,255,0.25)] text-white ring-1 ring-amber-400/25">
+        <div className="relative bg-gradient-to-br from-[#1b1233]/85 via-[#100a20]/90 to-[#070512]/95 backdrop-blur-2xl border border-amber-400/40 rounded-2xl sm:rounded-3xl p-3 sm:p-5 max-h-[calc(100dvh-4.5rem)] overflow-y-auto overflow-x-hidden shadow-[0_25px_80px_rgba(0,0,0,0.88),0_0_50px_rgba(245,158,11,0.15),inset_0_1px_2px_rgba(255,255,255,0.25)] text-white ring-1 ring-amber-400/25">
           
           {/* Top Royal Specular Edge Glow */}
           <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-amber-300/80 to-transparent pointer-events-none" />
@@ -486,24 +486,30 @@ export function SimpleMainMenu({
                 </div>
               </div>
 
-              {/* Difficulty Level */}
+              {/* Difficulty Level (Gallery Image 4) */}
               <div>
                 <span className="text-[10px] sm:text-[11px] font-bold text-amber-300 uppercase tracking-wider block mb-1">
                   AI Difficulty
                 </span>
                 <div className="grid grid-cols-4 gap-1 sm:gap-1.5">
-                  {['easy', 'medium', 'hard', 'expert'].map((lvl) => (
+                  {[
+                    { id: 'easy', label: 'EASY', activeClass: 'border-emerald-500 bg-emerald-500/20 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.35)]' },
+                    { id: 'medium', label: 'MEDIUM', activeClass: 'border-amber-500 bg-amber-500/20 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.35)]' },
+                    { id: 'hard', label: 'HARD', activeClass: 'border-rose-500 bg-rose-500/20 text-rose-300 shadow-[0_0_12px_rgba(244,63,94,0.35)]' },
+                    { id: 'expert', label: 'EXPERT', activeClass: 'border-yellow-400 bg-yellow-400/25 text-yellow-200 shadow-[0_0_16px_rgba(250,204,21,0.45)]', hasCrown: true }
+                  ].map((lvl) => (
                     <button
-                      key={lvl}
+                      key={lvl.id}
                       type="button"
-                      onClick={() => setAiDifficulty(lvl)}
-                      className={`py-1 sm:py-1.5 rounded-xl text-[11px] sm:text-xs font-bold capitalize transition cursor-pointer ${
-                        aiDifficulty === lvl
-                          ? 'bg-amber-400/30 border border-amber-400 text-amber-200 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
-                          : 'bg-white/[0.05] border border-white/10 text-slate-400 hover:text-white hover:bg-white/10'
+                      onClick={() => setAiDifficulty(lvl.id)}
+                      className={`py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-xs font-black tracking-wider transition cursor-pointer flex items-center justify-center gap-1 border ${
+                        aiDifficulty === lvl.id
+                          ? lvl.activeClass
+                          : 'bg-white/[0.04] border-white/10 text-slate-400 hover:text-white hover:bg-white/10'
                       }`}
                     >
-                      {lvl}
+                      {lvl.hasCrown && <Crown className="w-3 h-3 text-yellow-300 fill-current shrink-0" />}
+                      <span>{lvl.label}</span>
                     </button>
                   ))}
                 </div>
@@ -522,39 +528,76 @@ export function SimpleMainMenu({
             </div>
           )}
 
-          {/* Match Time Control (Blitz, Rapid, Classical, Untimed) */}
+          {/* Match Time Control (Blitz, Rapid, Classical, Untimed - Gallery Image 4) */}
           <div className="p-2 sm:p-2.5 sm:px-3 rounded-2xl bg-black/35 backdrop-blur-md border border-white/10 mb-2.5 sm:mb-3">
             <div className="flex items-center justify-between text-[10px] sm:text-[11px] font-bold text-amber-300 uppercase tracking-wider mb-1.5">
               <span className="flex items-center gap-1.5">
                 <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                <span>Match Timer</span>
+                <span>Time Control</span>
               </span>
               <span className="text-[9px] sm:text-[10px] text-slate-300 font-mono">
-                {matchDurationMin === 0 ? 'No clock (Casual)' : `${matchDurationMin}m per player`}
+                {matchDurationMin === 0 ? 'Untimed (Casual)' : `${matchDurationMin}m per player`}
               </span>
             </div>
             <div className="grid grid-cols-5 gap-1 sm:gap-1.5">
               {[
-                { label: '3m', sub: 'Blitz', val: 3 },
-                { label: '5m', sub: 'Blitz', val: 5 },
-                { label: '10m', sub: 'Rapid', val: 10 },
-                { label: '15m', sub: 'Rapid', val: 15 },
-                { label: '∞', sub: 'Untimed', val: 0 }
+                { label: '3m', sub: 'BLITZ', val: 3, activeGlow: 'border-cyan-400 bg-cyan-500/25 text-cyan-200 shadow-[0_0_12px_rgba(6,182,212,0.35)]' },
+                { label: '5m', sub: 'BLITZ', val: 5, activeGlow: 'border-cyan-400 bg-cyan-500/25 text-cyan-200 shadow-[0_0_12px_rgba(6,182,212,0.35)]' },
+                { label: '10m', sub: 'RAPID', val: 10, activeGlow: 'border-amber-400 bg-amber-500/25 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.35)]' },
+                { label: '15m', sub: 'RAPID', val: 15, activeGlow: 'border-amber-400 bg-amber-500/25 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.35)]' },
+                { label: '∞', sub: 'UNTIMED', val: 0, activeGlow: 'border-purple-400 bg-purple-500/25 text-purple-200 shadow-[0_0_12px_rgba(168,85,247,0.35)]' }
               ].map((tc) => (
                 <button
                   key={tc.val}
                   type="button"
                   onClick={() => onSetTimeControl(tc.val)}
-                  className={`py-1 sm:py-1.5 px-1 rounded-xl transition flex flex-col items-center justify-center cursor-pointer ${
+                  className={`py-1 sm:py-1.5 px-1 rounded-xl transition flex flex-col items-center justify-center cursor-pointer border ${
                     matchDurationMin === tc.val
-                      ? 'bg-gradient-to-b from-amber-400/30 to-amber-500/20 border border-amber-400 text-amber-200 shadow-sm'
-                      : 'bg-white/[0.05] border border-white/10 text-slate-300 hover:text-white hover:bg-white/10'
+                      ? tc.activeGlow
+                      : 'bg-white/[0.04] border-white/10 text-slate-300 hover:text-white hover:bg-white/10'
                   }`}
                 >
                   <span className="font-extrabold text-[11px] sm:text-xs">{tc.label}</span>
-                  <span className="text-[8px] sm:text-[9px] font-medium opacity-70 leading-none mt-0.5">{tc.sub}</span>
+                  <span className="text-[8px] sm:text-[9px] font-mono tracking-wider opacity-80 leading-none mt-0.5">{tc.sub}</span>
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* SOUNDTRACK CARD & ANIMATED AUDIO WAVEFORM VISUALIZER (Gallery Image 4) */}
+          <div className="relative overflow-hidden p-2 sm:p-3 rounded-2xl bg-black/45 backdrop-blur-md border border-amber-400/30 mb-2 sm:mb-3">
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] mb-1">
+              <span className="font-bold text-amber-300 uppercase tracking-widest flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                <span>SOUNDTRACK</span>
+              </span>
+              <span className="text-slate-300/80 font-serif italic text-[10px] truncate max-w-[190px]">
+                {currentThemeObj.musicName || 'Cinematic Score'}
+              </span>
+            </div>
+
+            {/* Glowing Golden Audio Waveform Graphic (Gallery Image 4) */}
+            <div className="relative h-6 sm:h-9 w-full flex items-center justify-between px-1 gap-0.5 sm:gap-1 overflow-hidden rounded-xl bg-amber-500/[0.06] border border-amber-400/15">
+              {/* Dynamic Wave Bars */}
+              {[40, 65, 25, 80, 50, 95, 30, 70, 85, 45, 100, 60, 35, 90, 75, 55, 85, 40, 70, 95, 50, 30, 85, 60, 45, 75, 35, 65].map((h, bIdx) => (
+                <div
+                  key={bIdx}
+                  className="flex-1 bg-gradient-to-t from-amber-500 to-amber-200 rounded-full transition-all duration-300 shadow-[0_0_8px_rgba(245,158,11,0.4)]"
+                  style={{
+                    height: `${Math.max(15, h)}%`,
+                    animation: `pulse ${1.2 + (bIdx % 5) * 0.25}s ease-in-out infinite alternate`,
+                    animationDelay: `${bIdx * 0.05}s`
+                  }}
+                />
+              ))}
+
+              {/* Floating Musical Notes Overlay */}
+              <div className="absolute inset-0 pointer-events-none flex items-center justify-around opacity-60 text-amber-200 text-xs sm:text-sm font-serif">
+                <span className="animate-bounce" style={{ animationDuration: '2.5s' }}>♪</span>
+                <span className="animate-pulse" style={{ animationDuration: '1.8s' }}>♫</span>
+                <span className="animate-bounce" style={{ animationDuration: '3.1s' }}>♬</span>
+                <span className="animate-pulse" style={{ animationDuration: '2.2s' }}>♪</span>
+              </div>
             </div>
           </div>
 
@@ -562,7 +605,7 @@ export function SimpleMainMenu({
           <button
             type="button"
             onClick={onStartGame}
-            className="w-full py-3 sm:py-3.5 rounded-2xl bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 hover:brightness-110 text-black font-black text-sm sm:text-base uppercase tracking-wider sm:tracking-widest shadow-[0_0_35px_rgba(245,158,11,0.55),inset_0_1px_2px_rgba(255,255,255,0.7)] border border-amber-200 ring-2 ring-amber-400/40 transition hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2.5 cursor-pointer"
+            className="w-full py-2.5 sm:py-3.5 rounded-2xl bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 hover:brightness-110 text-black font-black text-xs sm:text-base uppercase tracking-wider sm:tracking-widest shadow-[0_0_35px_rgba(245,158,11,0.55),inset_0_1px_2px_rgba(255,255,255,0.7)] border border-amber-200 ring-2 ring-amber-400/40 transition hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer"
           >
             <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
             <span>{gameMode === 'ai' ? 'Start Game vs AI' : 'Start 2-Player Game'}</span>

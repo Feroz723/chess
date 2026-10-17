@@ -815,10 +815,64 @@ export default function App() {
 
   // Tactical Notice Board (Alternative Move Control) State
   const [selectedSquare, setSelectedSquare] = useState(null);
-  const [noticeBoardOpen, setNoticeBoardOpen] = useState(true);
+  const [noticeBoardOpen, setNoticeBoardOpen] = useState(false);
   const [noticeTab, setNoticeTab] = useState('board'); // 'board' (2D Parchment Grid) | 'moves' (Legal Moves Roster)
   const [commandInput, setCommandInput] = useState('');
   const [commandError, setCommandError] = useState('');
+  // Mobile Landscape / Wide Battle Mode Detection & States
+  const [isPortraitOnMobile, setIsPortraitOnMobile] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const isTouch = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    return isTouch && window.innerHeight > window.innerWidth && window.innerWidth < 1024;
+  });
+  const [dismissRotatePrompt, setDismissRotatePrompt] = useState(false);
+  const [isMobileLandscape, setIsMobileLandscape] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const isTouch = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    return isTouch && window.innerWidth > window.innerHeight && (window.innerHeight < 650 || window.innerWidth <= 1180);
+  });
+  const [noticeBoardMinimizedInLandscape, setNoticeBoardMinimizedInLandscape] = useState(false);
+
+  useEffect(() => {
+    const handleOrientationCheck = () => {
+      if (typeof window === 'undefined') return;
+      const isTouch = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const portrait = isTouch && h > w && w < 1024;
+      const landscape = isTouch && w > h && (h < 650 || w <= 1180);
+      setIsPortraitOnMobile(portrait);
+      setIsMobileLandscape(landscape);
+
+      const eng = engineRef.current;
+      if (eng && eng.camera) {
+        if (currentScreenRef.current !== 'game') {
+          if (w >= 1024) {
+            eng.camera.setViewOffset(w, h, -Math.round(w * 0.15), 0, w, h);
+          } else {
+            eng.camera.clearViewOffset();
+          }
+        } else {
+          if (landscape && !noticeBoardMinimizedInLandscape) {
+            eng.camera.fov = h < 480 ? 52 : 46;
+            eng.camera.setViewOffset(w, h, Math.round(w * 0.20), 0, w, h);
+          } else {
+            eng.camera.fov = w < 640 ? 54 : w < 1024 ? 46 : 42;
+            eng.camera.clearViewOffset();
+          }
+        }
+        eng.camera.updateProjectionMatrix();
+      }
+    };
+
+    window.addEventListener('resize', handleOrientationCheck);
+    window.addEventListener('orientationchange', handleOrientationCheck);
+    handleOrientationCheck();
+    return () => {
+      window.removeEventListener('resize', handleOrientationCheck);
+      window.removeEventListener('orientationchange', handleOrientationCheck);
+    };
+  }, [noticeBoardMinimizedInLandscape]);
 
   // Sanctum Registry State (Clean Player-Facing)
   const [sanctumModalOpen, setSanctumModalOpen] = useState(false);
@@ -883,28 +937,36 @@ export default function App() {
     }
   }, [isGameActive]);
 
-  // Ensure 3D board background is always auto-orbiting and positioned on the right side on the Home screen
+  // Ensure 3D board background is positioned correctly across screens & landscape orientations
   useEffect(() => {
     currentScreenRef.current = currentScreen;
     const eng = engineRef.current;
-    if (!eng) return;
+    if (!eng || !eng.camera) return;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
     if (currentScreen !== 'game') {
       eng.autoOrbit = true;
       eng.targetPhi = 0.92;
       eng.targetRadius = 16.0;
-      if (eng.camera && window.innerWidth >= 1024) {
-        const w = window.innerWidth;
-        const h = window.innerHeight;
+      if (w >= 1024) {
         eng.camera.setViewOffset(w, h, -Math.round(w * 0.15), 0, w, h);
-        eng.camera.updateProjectionMatrix();
+      } else {
+        eng.camera.clearViewOffset();
       }
     } else {
-      if (eng.camera) {
+      const isTouch = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window) || navigator.maxTouchPoints > 0);
+      const isLandscape = isTouch && w > h && (h < 650 || w <= 1180);
+      if (isLandscape && !noticeBoardMinimizedInLandscape) {
+        eng.camera.fov = h < 480 ? 52 : 46;
+        eng.camera.setViewOffset(w, h, Math.round(w * 0.20), 0, w, h);
+      } else {
+        eng.camera.fov = w < 640 ? 54 : w < 1024 ? 46 : 42;
         eng.camera.clearViewOffset();
-        eng.camera.updateProjectionMatrix();
       }
     }
-  }, [currentScreen]);
+    eng.camera.updateProjectionMatrix();
+  }, [currentScreen, isMobileLandscape, noticeBoardMinimizedInLandscape]);
 
   // Remove any legacy database connection strings from local storage
   useEffect(() => {
@@ -1271,14 +1333,24 @@ export default function App() {
     scene.fog = new THREE.FogExp2(0x09080d, 0.024);
     eng.scene = scene;
 
-    const camera = new THREE.PerspectiveCamera(42, container.clientWidth / container.clientHeight, 0.1, 150);
+    const isMobileDevice = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768);
+    const isTabletDevice = typeof window !== 'undefined' && (window.innerWidth >= 768 && window.innerWidth <= 1024);
+
+    const initialFov = container.clientWidth < 640 ? 54 : container.clientWidth < 1024 ? 46 : 42;
+    const camera = new THREE.PerspectiveCamera(initialFov, container.clientWidth / container.clientHeight, 0.1, 150);
     eng.camera = camera;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    const renderer = new THREE.WebGLRenderer({
+      antialias: !isMobileDevice,
+      powerPreference: isMobileDevice ? 'default' : 'high-performance',
+      precision: isMobileDevice ? 'mediump' : 'highp'
+    });
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.setPixelRatio(isMobileDevice ? 1.0 : isTabletDevice ? 1.25 : Math.min(window.devicePixelRatio, 1.5));
+    renderer.shadowMap.enabled = !isMobileDevice;
+    if (!isMobileDevice) {
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    }
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.42;
     container.innerHTML = '';
@@ -1339,6 +1411,51 @@ export default function App() {
       pillar.castShadow = true;
       pillar.receiveShadow = true;
       sanctumGroup.add(pillar);
+    });
+
+    // Cathedral Gothic Ribbed Vault Ceiling Arches (Gallery Image 1)
+    const vaultArchGeo = new THREE.TorusGeometry(11.2, 0.24, 8, 32, Math.PI);
+    [-11, 0, 11].forEach(az => {
+      const rib = new THREE.Mesh(vaultArchGeo, sanctumStoneMat);
+      rib.position.set(0, 16.5, az);
+      sanctumGroup.add(rib);
+    });
+    // Diagonal Groin Vault Crossing Ribs
+    const diagRib1 = new THREE.Mesh(new THREE.TorusGeometry(15.2, 0.20, 8, 32, Math.PI), sanctumStoneMat);
+    diagRib1.position.set(0, 17.5, 0);
+    diagRib1.rotation.y = Math.PI / 4;
+    sanctumGroup.add(diagRib1);
+    const diagRib2 = new THREE.Mesh(new THREE.TorusGeometry(15.2, 0.20, 8, 32, Math.PI), sanctumStoneMat);
+    diagRib2.position.set(0, 17.5, 0);
+    diagRib2.rotation.y = -Math.PI / 4;
+    sanctumGroup.add(diagRib2);
+
+    // Left and Right Gothic Nave Interior Walls with Stained-Glass Lancet Windows
+    [-14.2, 14.2].forEach((wx, wIdx) => {
+      const naveWall = new THREE.Mesh(new THREE.BoxGeometry(1.2, 22, 34), sanctumStoneMat);
+      naveWall.position.set(wx, 8.5, 0);
+      sanctumGroup.add(naveWall);
+
+      // 3 Arched Stained Glass Lancet Windows per wall
+      [-9, 0, 9].forEach(wz => {
+        const winGlass = new THREE.Mesh(
+          new THREE.PlaneGeometry(1.5, 6.4),
+          new THREE.MeshBasicMaterial({
+            color: wz === 0 ? 0xfbbf24 : 0xa855f7,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.65,
+            blending: THREE.AdditiveBlending
+          })
+        );
+        winGlass.position.set(wx - (wIdx === 0 ? -0.58 : 0.58), 8.5, wz);
+        winGlass.rotation.y = Math.PI / 2;
+        sanctumGroup.add(winGlass);
+
+        const winLight = new THREE.PointLight(wz === 0 ? 0xfbbf24 : 0xa855f7, 1.2, 9, 2);
+        winLight.position.set(wx - (wIdx === 0 ? -0.85 : 0.85), 8.5, wz);
+        sanctumGroup.add(winLight);
+      });
     });
 
     const roseOuter = new THREE.Mesh(
@@ -1678,6 +1795,14 @@ export default function App() {
     cryptMoonGlow.position.set(0, 11, -18.9);
     cryptGroup.add(cryptMoonGlow);
 
+    // Ruined Gothic Stone Arch framing the Blood Moon (Gallery Image 3)
+    const cryptArch = new THREE.Mesh(
+      new THREE.TorusGeometry(5.2, 0.48, 8, 28, Math.PI),
+      cryptStoneMat
+    );
+    cryptArch.position.set(0, 11.0, -18.2);
+    cryptGroup.add(cryptArch);
+
     // Gothic Bone Crypt Pillars (4 corner spires)
     const cryptPillarGeo = new THREE.CylinderGeometry(0.55, 0.8, 17, 8);
     const cryptPillars = [];
@@ -1859,36 +1984,113 @@ export default function App() {
     jungleGroup.add(jungleCenterLight);
 
     // =========================================================================
-    // I. GLACIAL SUMMIT WORLD (Adventure 2) - Nordic Ice Peaks & Aurora Frost-Fire
+    // I. GLACIAL SUMMIT WORLD (Adventure 2) - Himalayas, Frozen Ice Board & Aurora Borealis
     // =========================================================================
     const glacialGroup = new THREE.Group();
     scene.add(glacialGroup);
     glacialGroup.visible = false;
-    const frostStoneMat = new THREE.MeshStandardMaterial({ color: 0x0a2238, roughness: 0.4, metalness: 0.6 });
-    const iceCrystalMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.15, metalness: 0.9, transparent: true, opacity: 0.85 });
-    const glacialAltar = new THREE.Mesh(new THREE.BoxGeometry(11.2, 1.2, 11.2), frostStoneMat);
+    const frostStoneMat = new THREE.MeshStandardMaterial({
+      color: 0x0a2238,
+      roughness: 0.15,
+      metalness: 0.8,
+      transparent: true,
+      opacity: 0.88
+    });
+    const iceCrystalMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      roughness: 0.1,
+      metalness: 0.9,
+      transparent: true,
+      opacity: 0.85
+    });
+
+    // 1. Translucent Frozen Blue Ice Altar Slab
+    const glacialAltar = new THREE.Mesh(new THREE.BoxGeometry(11.4, 1.3, 11.4), frostStoneMat);
     glacialAltar.position.y = -0.75;
     glacialAltar.receiveShadow = true;
     glacialGroup.add(glacialAltar);
 
-    // Nordic Ice Spires (Spikes jutting around perimeter)
+    // 2. Hanging Translucent Icicle Stalactites along Altar Edges (Gallery Image 3)
+    const icicleGeo = new THREE.ConeGeometry(0.16, 1.6, 6);
+    icicleGeo.rotateX(Math.PI); // Point downward
+    for (let ic = 0; ic < 28; ic++) {
+      const side = ic % 4;
+      const t = (Math.floor(ic / 4) / 7) - 0.5;
+      const icicle = new THREE.Mesh(icicleGeo, iceCrystalMat);
+      const span = 5.2;
+      if (side === 0) icicle.position.set(t * span * 2, -1.4, -5.6);
+      else if (side === 1) icicle.position.set(t * span * 2, -1.4, 5.6);
+      else if (side === 2) icicle.position.set(-5.6, -1.4, t * span * 2);
+      else icicle.position.set(5.6, -1.4, t * span * 2);
+      icicle.scale.set(0.7 + Math.random() * 0.6, 0.7 + Math.random() * 0.7, 0.7 + Math.random() * 0.6);
+      glacialGroup.add(icicle);
+    }
+
+    // 3. Towering Himalayan Mountain Range Perimeter (Gallery Image 3)
+    const mountainRockMat = new THREE.MeshStandardMaterial({ color: 0x182436, roughness: 0.9, metalness: 0.15 });
+    const snowCapMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.35, metalness: 0.05 });
+    const himalayanPeaks = [];
+    const peakCount = 20;
+    for (let p = 0; p < peakCount; p++) {
+      const ang = (p / peakCount) * Math.PI * 2;
+      const dist = 24 + (p % 3) * 5;
+      const px = Math.cos(ang) * dist;
+      const pz = Math.sin(ang) * dist;
+      const peakHeight = 18 + ((p * 7) % 15) * 1.3;
+      const baseRadius = 5 + (p % 4) * 1.2;
+
+      // Base rugged mountain body
+      const mBody = new THREE.Mesh(new THREE.ConeGeometry(baseRadius, peakHeight, 6), mountainRockMat);
+      mBody.position.set(px, peakHeight / 2 - 2, pz);
+      mBody.rotation.y = (p * 1.3);
+      glacialGroup.add(mBody);
+
+      // Glistening Snow Cap (Upper 45% of peak)
+      const capHeight = peakHeight * 0.45;
+      const capRadius = baseRadius * 0.45;
+      const sCap = new THREE.Mesh(new THREE.ConeGeometry(capRadius, capHeight, 6), snowCapMat);
+      sCap.position.set(px, peakHeight - capHeight / 2 - 2, pz);
+      sCap.rotation.y = mBody.rotation.y;
+      glacialGroup.add(sCap);
+
+      himalayanPeaks.push(mBody);
+    }
+
+    // 4. Jagged Glacial Crystal Spires jutting near perimeter
     const iceSpires = [];
-    [[-11, -11], [11, -11], [-11, 11], [11, 11], [-12, 0], [12, 0]].forEach(([px, pz]) => {
-      const spire = new THREE.Mesh(new THREE.ConeGeometry(1.2, 14, 6), iceCrystalMat);
-      spire.position.set(px, 6.5, pz);
+    [[-11, -11], [11, -11], [-11, 11], [11, 11], [-13, 0], [13, 0], [0, -13], [0, 13]].forEach(([px, pz]) => {
+      const spire = new THREE.Mesh(new THREE.ConeGeometry(1.4, 16, 6), iceCrystalMat);
+      spire.position.set(px, 7.5, pz);
       glacialGroup.add(spire);
       iceSpires.push(spire);
     });
 
-    // Aurora Ribbon in Sky
-    const auroraGeo = new THREE.TorusGeometry(16, 1.2, 16, 64, Math.PI);
-    const auroraMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.45, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
-    const auroraRibbon = new THREE.Mesh(auroraGeo, auroraMat);
-    auroraRibbon.position.set(0, 10, -14);
-    auroraRibbon.rotation.x = Math.PI / 3;
-    glacialGroup.add(auroraRibbon);
+    // 5. Living Aurora Borealis (Northern Lights) Ribbons (Gallery Image 3)
+    const auroraRibbons = [];
+    const auroraConfigs = [
+      { color: 0x10b981, radius: 19, tube: 1.8, y: 12, z: -15, rotX: Math.PI / 3.2, op: 0.55 },
+      { color: 0x06b6d4, radius: 22, tube: 2.4, y: 14, z: -18, rotX: Math.PI / 3.0, op: 0.50 },
+      { color: 0x818cf8, radius: 17, tube: 1.4, y: 15, z: -13, rotX: Math.PI / 3.4, op: 0.40 }
+    ];
+    auroraConfigs.forEach((cfg) => {
+      const aGeo = new THREE.TorusGeometry(cfg.radius, cfg.tube, 16, 64, Math.PI);
+      const aMat = new THREE.MeshBasicMaterial({
+        color: cfg.color,
+        transparent: true,
+        opacity: cfg.op,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      const aMesh = new THREE.Mesh(aGeo, aMat);
+      aMesh.position.set(0, cfg.y, cfg.z);
+      aMesh.rotation.x = cfg.rotX;
+      glacialGroup.add(aMesh);
+      auroraRibbons.push(aMesh);
+    });
+    const auroraRibbon = auroraRibbons[0]; // backward compat
 
-    // Crystalline Blue Frost-Fire Pedestals
+    // 6. Crystalline Blue Frost-Fire Pedestals
     const glacialBraziers = [];
     [[-6.3, -6.3], [6.3, -6.3], [-6.3, 6.3], [6.3, 6.3]].forEach(([bx, bz], idx) => {
       const bGrp = new THREE.Group();
@@ -1902,7 +2104,7 @@ export default function App() {
       );
       flame.position.y = 0.85;
       bGrp.add(flame);
-      const light = new THREE.PointLight(0x38bdf8, 2.5, 10, 2);
+      const light = new THREE.PointLight(0x38bdf8, 2.8, 11, 2);
       light.position.y = 0.95;
       bGrp.add(light);
       glacialGroup.add(bGrp);
@@ -1910,12 +2112,28 @@ export default function App() {
     });
 
     // Central Glacial Frost Glow
-    const glacialCenterLight = new THREE.PointLight(0x00e5ff, 2.4, 9, 2);
+    const glacialCenterLight = new THREE.PointLight(0x00e5ff, 2.8, 10, 2);
     glacialCenterLight.position.set(0, 0.35, 0);
     glacialGroup.add(glacialCenterLight);
 
+    // Floating Glacial Snow Particles (Gallery Image 3)
+    const snowCount = isMobileDevice ? 40 : 180;
+    const snowGeo = new THREE.BufferGeometry();
+    const snowPos = new Float32Array(snowCount * 3);
+    for (let s = 0; s < snowCount; s++) {
+      snowPos[s * 3] = (Math.random() - 0.5) * 32;
+      snowPos[s * 3 + 1] = Math.random() * 16 + 0.5;
+      snowPos[s * 3 + 2] = (Math.random() - 0.5) * 32;
+    }
+    snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
+    const snowParticles = new THREE.Points(
+      snowGeo,
+      new THREE.PointsMaterial({ color: 0xe0f2fe, size: 0.13, transparent: true, opacity: 0.85 })
+    );
+    glacialGroup.add(snowParticles);
+
     // =========================================================================
-    // J. INFERNO BASTION WORLD (Action/War 1) - Molten Core, Basalt & Lava Fires
+    // J. INFERNO BASTION WORLD (Action/War 1) - Real Smoking Volcano Caldera & Molten Lava Sea
     // =========================================================================
     const volcanoGroup = new THREE.Group();
     scene.add(volcanoGroup);
@@ -1927,7 +2145,64 @@ export default function App() {
     volcanoAltar.receiveShadow = true;
     volcanoGroup.add(volcanoAltar);
 
-    // Jagged Volcanic Rock Spikes + Iron Chains
+    // 1. Massive Smoking Volcano Caldera Mountain in Backdrop (Gallery Image 3)
+    const volcanoCone = new THREE.Mesh(
+      new THREE.CylinderGeometry(5.2, 22.0, 24.0, 24, 1, true),
+      basaltMat
+    );
+    volcanoCone.position.set(0, 10.5, -28);
+    volcanoGroup.add(volcanoCone);
+
+    // Boiling Molten Lava Lake in Crater Caldera
+    const calderaLake = new THREE.Mesh(
+      new THREE.CircleGeometry(5.0, 24),
+      new THREE.MeshBasicMaterial({ color: 0xff3300, side: THREE.DoubleSide })
+    );
+    calderaLake.rotation.x = -Math.PI / 2;
+    calderaLake.position.set(0, 22.4, -28);
+    volcanoGroup.add(calderaLake);
+
+    const calderaLight = new THREE.PointLight(0xff4500, 4.5, 24, 2);
+    calderaLight.position.set(0, 23.0, -28);
+    volcanoGroup.add(calderaLight);
+
+    // Caldera Rising Volcanic Smoke/Ash System
+    const smokeCount = isMobileDevice ? 28 : 75;
+    const smokeGeo = new THREE.BufferGeometry();
+    const smokePos = new Float32Array(smokeCount * 3);
+    for (let sm = 0; sm < smokeCount; sm++) {
+      smokePos[sm * 3] = (Math.random() - 0.5) * 7.5;
+      smokePos[sm * 3 + 1] = 22.5 + Math.random() * 12.0;
+      smokePos[sm * 3 + 2] = -28 + (Math.random() - 0.5) * 7.5;
+    }
+    smokeGeo.setAttribute('position', new THREE.BufferAttribute(smokePos, 3));
+    const volcanoSmoke = new THREE.Points(
+      smokeGeo,
+      new THREE.PointsMaterial({ color: 0x3a1e16, size: 0.85, transparent: true, opacity: 0.65 })
+    );
+    volcanoGroup.add(volcanoSmoke);
+
+    // 2. Undulating Molten Magma Sea Beneath the Board (Gallery Image 3)
+    const lavaSeaGeo = new THREE.PlaneGeometry(90, 90);
+    const lavaSeaMat = new THREE.MeshBasicMaterial({ color: 0xff2800, side: THREE.DoubleSide });
+    const lavaSea = new THREE.Mesh(lavaSeaGeo, lavaSeaMat);
+    lavaSea.rotation.x = -Math.PI / 2;
+    lavaSea.position.y = -2.4;
+    volcanoGroup.add(lavaSea);
+
+    // Floating Charred Basalt Crust Rock Islands in Lava
+    for (let isl = 0; isl < 14; isl++) {
+      const iAng = (isl / 14) * Math.PI * 2;
+      const iDist = 12 + (isl % 3) * 6;
+      const island = new THREE.Mesh(
+        new THREE.CylinderGeometry(2.5 + (isl % 3), 3.2 + (isl % 3), 0.6, 7),
+        basaltMat
+      );
+      island.position.set(Math.cos(iAng) * iDist, -2.1, Math.sin(iAng) * iDist);
+      volcanoGroup.add(island);
+    }
+
+    // 3. Jagged Volcanic Rock Spikes + Iron Chains
     const volcanoSpikes = [];
     [[-11, -11], [11, -11], [-11, 11], [11, 11], [-13, 0], [13, 0]].forEach(([px, pz]) => {
       const spike = new THREE.Mesh(new THREE.ConeGeometry(1.4, 15, 5), basaltMat);
@@ -1946,7 +2221,7 @@ export default function App() {
     chain1.rotation.z = Math.PI / 2.8;
     volcanoGroup.add(chain1);
 
-    // Roaring Molten Magma Cauldrons
+    // 4. Roaring Molten Magma Cauldrons
     const volcanoBraziers = [];
     [[-6.3, -6.3], [6.3, -6.3], [-6.3, 6.3], [6.3, 6.3]].forEach(([bx, bz], idx) => {
       const bGrp = new THREE.Group();
@@ -1971,7 +2246,7 @@ export default function App() {
     });
 
     // Central Chasm Roaring Molten Core Fire
-    const volcanoCenterLight = new THREE.PointLight(0xff2200, 3.0, 10, 2);
+    const volcanoCenterLight = new THREE.PointLight(0xff2200, 3.4, 11, 2);
     volcanoCenterLight.position.set(0, 0.35, 0);
     volcanoGroup.add(volcanoCenterLight);
 
@@ -2038,8 +2313,41 @@ export default function App() {
     cyberCenterLight.position.set(0, 0.35, 0);
     cyberGroup.add(cyberCenterLight);
 
+    // 3D Intersecting Overhead Neon Laser Grid Beams (Gallery Image 3)
+    const cyberCeilingLasers = [];
+    for (let l = 0; l < 6; l++) {
+      const isX = l % 2 === 0;
+      const lGeo = new THREE.CylinderGeometry(0.045, 0.045, 26, 6);
+      const lMat = new THREE.MeshBasicMaterial({
+        color: l % 2 === 0 ? 0x00f0ff : 0xd946ef,
+        transparent: true,
+        opacity: 0.75,
+        blending: THREE.AdditiveBlending
+      });
+      const lMesh = new THREE.Mesh(lGeo, lMat);
+      const y = 9.8 + l * 0.9;
+      const offset = (l - 2.5) * 4.2;
+      if (isX) {
+        lMesh.rotation.z = Math.PI / 2;
+        lMesh.position.set(0, y, offset);
+      } else {
+        lMesh.rotation.x = Math.PI / 2;
+        lMesh.position.set(offset, y, 0);
+      }
+      cyberGroup.add(lMesh);
+      cyberCeilingLasers.push(lMesh);
+    }
+
+    // Holographic Cybernetic Matrix Polyhedron floating in background
+    const cyberHoloCube = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(2.2, 1),
+      new THREE.MeshBasicMaterial({ color: 0x00f0ff, wireframe: true, transparent: true, opacity: 0.85 })
+    );
+    cyberHoloCube.position.set(0, 11, -17);
+    cyberGroup.add(cyberHoloCube);
+
     // Floating Cathedral Embers
-    const emberCount = 110;
+    const emberCount = isMobileDevice ? 32 : 110;
     const emberGeo = new THREE.BufferGeometry();
     const emberPositions = new Float32Array(emberCount * 3);
     for (let i = 0; i < emberCount; i++) {
@@ -2175,6 +2483,20 @@ export default function App() {
     borderFrame.receiveShadow = true;
     boardGroup.add(borderFrame);
 
+    // 5a. Looping Board Perimeter Light (Travels along perimeter in a continuous loop)
+    const boardLoopLight = new THREE.PointLight(0xfbbf24, 2.8, 5.0, 2);
+    boardLoopLight.position.set(-4.2, 0.22, -4.2);
+    boardGroup.add(boardLoopLight);
+
+    const boardLoopGlow = new THREE.Mesh(
+      new THREE.SphereGeometry(0.08, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0xfde68a, transparent: true, opacity: 0.9 })
+    );
+    boardLoopGlow.position.set(-4.2, 0.12, -4.2);
+    boardGroup.add(boardLoopGlow);
+    eng.boardLoopLight = boardLoopLight;
+    eng.boardLoopGlow = boardLoopGlow;
+
     // 5b. Runic Coordinates on Cathedral Marble Board Frame (Letters A-H & Numbers 1-8)
     function createCoordinateTexture(char) {
       const c = document.createElement('canvas');
@@ -2275,6 +2597,22 @@ export default function App() {
       base.receiveShadow = true;
       group.add(base);
 
+      // Glowing Base Rune Foundation Ring
+      const baseRuneRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.28, 0.40, 24),
+        new THREE.MeshBasicMaterial({
+          color: color === 'w' ? 0xfbbf24 : 0xa855f7,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.85,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending
+        })
+      );
+      baseRuneRing.rotation.x = -Math.PI / 2;
+      baseRuneRing.position.y = 0.015;
+      group.add(baseRuneRing);
+
       const collar = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.022, 12, 26), accentMat);
       collar.rotation.x = Math.PI / 2;
       collar.position.y = 0.21;
@@ -2308,108 +2646,63 @@ export default function App() {
       } else if (type === 'n') {
         const horseGroup = new THREE.Group();
 
-        // 1. Pedestal collar & riser
-        const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.27, 0.10, 24), mainMat);
-        pedestal.position.y = 0.26;
+        // 1. Pedestal collar & mounting riser
+        const pedestal = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.21, 0.25, 0.08, 24),
+          mainMat
+        );
+        pedestal.position.y = 0.29;
         pedestal.castShadow = true;
         pedestal.receiveShadow = true;
         horseGroup.add(pedestal);
 
-        // 2. Sculpted Muscular Horse Profile Shape
+        // 2. Clean sculpted classic horse profile silhouette (exact match to user reference image)
         const horseShape = new THREE.Shape();
-        horseShape.moveTo(-0.16, 0.30);
-        // Muscular arched neck crest
-        horseShape.bezierCurveTo(-0.23, 0.58, -0.26, 0.90, -0.16, 1.18);
-        // Poll behind ears
-        horseShape.lineTo(-0.10, 1.30);
-        // Ears back
-        horseShape.lineTo(-0.08, 1.48);
-        // Ears tip
-        horseShape.lineTo(-0.04, 1.48);
-        // Ears front
-        horseShape.lineTo(-0.02, 1.32);
-        // Forehead and brow
-        horseShape.bezierCurveTo(0.08, 1.26, 0.18, 1.16, 0.26, 1.04);
-        // Muzzle and nostrils
-        horseShape.bezierCurveTo(0.35, 0.98, 0.36, 0.88, 0.28, 0.84);
-        // Chin and lower jaw
-        horseShape.bezierCurveTo(0.20, 0.82, 0.08, 0.84, 0.05, 0.86);
-        // Throat and chest
-        horseShape.bezierCurveTo(0.04, 0.68, 0.16, 0.52, 0.14, 0.30);
+        // Base of neck on pedestal
+        horseShape.moveTo(-0.16, 0.32);
+        // Arched neck crest rising up
+        horseShape.bezierCurveTo(-0.24, 0.65, -0.22, 1.05, -0.14, 1.28);
+        // Back edge of ear rising upright
+        horseShape.lineTo(-0.10, 1.54);
+        // Ear tip
+        horseShape.lineTo(-0.05, 1.54);
+        // Front edge of ear going down
+        horseShape.lineTo(-0.02, 1.34);
+        // Forehead sloping forward-down
+        horseShape.bezierCurveTo(0.08, 1.25, 0.18, 1.12, 0.26, 0.98);
+        // Rounded muzzle / snout
+        horseShape.bezierCurveTo(0.34, 0.92, 0.35, 0.80, 0.26, 0.76);
+        // Lower jaw / chin indent
+        horseShape.bezierCurveTo(0.18, 0.74, 0.08, 0.78, 0.05, 0.80);
+        // Throat and chest curving down to pedestal
+        horseShape.bezierCurveTo(0.04, 0.62, 0.16, 0.48, 0.14, 0.32);
         horseShape.closePath();
 
         const extrudeSettings = {
-          depth: 0.20,
+          depth: 0.16,
           bevelEnabled: true,
-          bevelSegments: 4,
+          bevelSegments: 3,
           steps: 1,
-          bevelSize: 0.035,
-          bevelThickness: 0.035
+          bevelSize: 0.02,
+          bevelThickness: 0.02
         };
         const horseGeo = new THREE.ExtrudeGeometry(horseShape, extrudeSettings);
-        horseGeo.translate(0, 0, -0.10); // Center along extrusion depth
+        horseGeo.translate(0, 0, -0.08); // Center depth along origin
         const horseBody = new THREE.Mesh(horseGeo, mainMat);
-        horseBody.rotation.y = -Math.PI / 2; // Orient thickness to X, profile to Z-Y
+        horseBody.rotation.y = -Math.PI / 2; // Snout faces -Z in local space
         horseBody.castShadow = true;
         horseBody.receiveShadow = true;
         horseGroup.add(horseBody);
 
-        // 3. Two 3D Pointed Horse Ears
-        const earGeo = new THREE.ConeGeometry(0.045, 0.18, 8);
-        const leftEar = new THREE.Mesh(earGeo, mainMat);
-        leftEar.position.set(-0.08, 1.40, -0.05);
-        leftEar.rotation.x = -0.22;
-        leftEar.rotation.z = -0.15;
-        leftEar.castShadow = true;
-        horseGroup.add(leftEar);
-
-        const rightEar = new THREE.Mesh(earGeo, mainMat);
-        rightEar.position.set(0.08, 1.40, -0.05);
-        rightEar.rotation.x = -0.22;
-        rightEar.rotation.z = 0.15;
-        rightEar.castShadow = true;
-        horseGroup.add(rightEar);
-
-        // 4. Rounded Horse Muzzle
-        const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.16, 14), mainMat);
-        muzzle.rotation.x = Math.PI / 2.7;
-        muzzle.position.set(0, 0.94, 0.27);
-        muzzle.scale.set(1.15, 1, 0.85);
-        muzzle.castShadow = true;
-        horseGroup.add(muzzle);
-
-        // 5. Gemstone Eyes on Both Sides
-        const eyeGeo = new THREE.SphereGeometry(0.038, 12, 12);
+        // 3. Golden Gemstone Eyes on Both Sides (positioned on head flank below brow)
+        const eyeGeo = new THREE.SphereGeometry(0.032, 12, 12);
         const leftEye = new THREE.Mesh(eyeGeo, accentMat);
-        leftEye.position.set(-0.13, 1.18, 0.10);
+        leftEye.position.set(-0.095, 1.10, -0.10);
         horseGroup.add(leftEye);
 
         const rightEye = new THREE.Mesh(eyeGeo, accentMat);
-        rightEye.position.set(0.13, 1.18, 0.10);
+        rightEye.position.set(0.095, 1.10, -0.10);
         horseGroup.add(rightEye);
-
-        // 6. Gothic Mane Ridges Along Neck Crest
-        for (let i = 0; i < 5; i++) {
-          const t = i / 4;
-          const maneRidge = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.11, 0.08), accentMat);
-          const mz = THREE.MathUtils.lerp(-0.08, -0.23, t);
-          const my = THREE.MathUtils.lerp(1.24, 0.65, t);
-          maneRidge.position.set(0, my, mz);
-          maneRidge.rotation.x = 0.38 + t * 0.32;
-          maneRidge.castShadow = true;
-          horseGroup.add(maneRidge);
-        }
-
-        // 7. Ornate Cathedral Bridle & Halter Trim
-        const browBand = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.03, 0.04), accentMat);
-        browBand.position.set(0, 1.24, 0.08);
-        browBand.rotation.x = -0.35;
-        horseGroup.add(browBand);
-
-        const noseBand = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.03, 0.04), accentMat);
-        noseBand.position.set(0, 0.98, 0.26);
-        noseBand.rotation.x = 0.45;
-        horseGroup.add(noseBand);
 
         // White pieces face towards Black (-Z); Black pieces face towards White (+Z)
         horseGroup.rotation.y = color === 'w' ? Math.PI : 0;
@@ -2454,6 +2747,25 @@ export default function App() {
         group.add(crossH);
       }
 
+      // =========================================================================
+      // PIECE BASE LIGHTING (Glowing floor halo ring on piece pedestal)
+      // =========================================================================
+      const auraColor = color === 'w' ? 0xfbbf24 : 0xa855f7;
+      const floorHalo = new THREE.Mesh(
+        new THREE.RingGeometry(0.22, 0.44, 26),
+        new THREE.MeshBasicMaterial({
+          color: auraColor,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.65,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending
+        })
+      );
+      floorHalo.rotation.x = -Math.PI / 2;
+      floorHalo.position.y = 0.022;
+      group.add(floorHalo);
+
       group.userData = { type, color, phaseOffset: Math.random() * Math.PI * 2 };
       return group;
     }
@@ -2484,6 +2796,7 @@ export default function App() {
     eng.applyTheme = (themeKey) => {
       try {
         const activeThemeKey = themeKey || royalTheme;
+        eng.activeThemeKey = activeThemeKey;
         const t = ROYAL_THEMES[activeThemeKey] || ROYAL_THEMES.sanctum;
 
         // Toggle 1-to-1 unique 3D background world geometry
@@ -2511,8 +2824,52 @@ export default function App() {
           emberParticles.material.color.setHex(t.emberHex || 0xfde68a);
         }
 
-        if (mats && mats.lightSquare && mats.lightSquare.color) mats.lightSquare.color.setHex(t.lightSquareHex);
-        if (mats && mats.darkSquare && mats.darkSquare.color) mats.darkSquare.color.setHex(t.darkSquareHex);
+        if (activeThemeKey === 'glacial') {
+          // Translucent Frozen Ice Board (Gallery Image 3)
+          if (mats && mats.lightSquare) {
+            mats.lightSquare.color.setHex(0xe0f2fe);
+            mats.lightSquare.roughness = 0.12;
+            mats.lightSquare.metalness = 0.25;
+            mats.lightSquare.transparent = true;
+            mats.lightSquare.opacity = 0.88;
+          }
+          if (mats && mats.darkSquare) {
+            mats.darkSquare.color.setHex(0x0284c7);
+            mats.darkSquare.roughness = 0.12;
+            mats.darkSquare.metalness = 0.45;
+            mats.darkSquare.transparent = true;
+            mats.darkSquare.opacity = 0.85;
+          }
+        } else if (activeThemeKey === 'volcano') {
+          // Molten Magma Seams & Charred Basalt Board (Gallery Image 3)
+          if (mats && mats.lightSquare) {
+            mats.lightSquare.color.setHex(0xff7722);
+            mats.lightSquare.roughness = 0.45;
+            mats.lightSquare.metalness = 0.3;
+            mats.lightSquare.transparent = false;
+            mats.lightSquare.opacity = 1.0;
+          }
+          if (mats && mats.darkSquare) {
+            mats.darkSquare.color.setHex(0x1a0604);
+            mats.darkSquare.roughness = 0.9;
+            mats.darkSquare.metalness = 0.1;
+            mats.darkSquare.transparent = false;
+            mats.darkSquare.opacity = 1.0;
+          }
+        } else {
+          if (mats && mats.lightSquare && mats.lightSquare.color) {
+            mats.lightSquare.color.setHex(t.lightSquareHex);
+            mats.lightSquare.transparent = false;
+            mats.lightSquare.opacity = 1.0;
+            mats.lightSquare.roughness = 0.6;
+          }
+          if (mats && mats.darkSquare && mats.darkSquare.color) {
+            mats.darkSquare.color.setHex(t.darkSquareHex);
+            mats.darkSquare.transparent = false;
+            mats.darkSquare.opacity = 1.0;
+            mats.darkSquare.roughness = 0.6;
+          }
+        }
 
         if (mats && mats.whiteMain && t.whitePiece) {
           mats.whiteMain.map = createStoneTexture(t.whitePiece.base, t.whitePiece.vein1, t.whitePiece.vein2);
@@ -2533,6 +2890,10 @@ export default function App() {
           if (mats.blackAccent.color) mats.blackAccent.color.setHex(t.blackPiece.accent);
           if (mats.blackAccent.emissive) mats.blackAccent.emissive.setHex(t.blackPiece.emissive);
         }
+
+        if (eng.rebuildPieces) {
+          eng.rebuildPieces();
+        }
       } catch (err) {
         console.warn('[Chess 3D] Error applying theme:', err);
       }
@@ -2544,30 +2905,214 @@ export default function App() {
 
     const shardGeo = new THREE.DodecahedronGeometry(0.1, 0);
 
-    function spawnShatter(worldPos, victimColor) {
+    const impactFlashLight = new THREE.PointLight(0xfff5e4, 0, 14, 2);
+    impactFlashLight.position.set(0, 1.2, 0);
+    scene.add(impactFlashLight);
+    eng.impactFlashLight = impactFlashLight;
+
+    eng.activeShockwaves = [];
+    function spawnShockwave(pos, colorHex = 0xfbbf24) {
+      const swGeo = new THREE.RingGeometry(0.3, 0.65, 32);
+      const swMat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.95,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      const swMesh = new THREE.Mesh(swGeo, swMat);
+      swMesh.rotation.x = -Math.PI / 2;
+      swMesh.position.set(pos.x, 0.02, pos.z);
+      scene.add(swMesh);
+      eng.activeShockwaves.push({ mesh: swMesh, scale: 0.4, life: 1.0 });
+    }
+
+    function spawnShatter(worldPos, victimColor, attackerColor = 'w') {
       const mat = victimColor === 'w' ? mats.whiteMain : mats.blackMain;
       const accent = victimColor === 'w' ? mats.whiteAccent : mats.blackAccent;
-      for (let i = 0; i < 20; i++) {
-        const shard = new THREE.Mesh(shardGeo, i % 4 === 0 ? accent : mat);
-        const s = 0.6 + Math.random() * 0.7;
+      const sparkColor = attackerColor === 'w' ? 0xfde68a : 0xc084fc;
+      const sparkMat = new THREE.MeshBasicMaterial({
+        color: sparkColor,
+        blending: THREE.AdditiveBlending,
+        transparent: true
+      });
+
+      // 1. Faceted Stone/Crystal Shards (Gallery Image 2)
+      for (let i = 0; i < 28; i++) {
+        const shard = new THREE.Mesh(shardGeo, i % 3 === 0 ? accent : mat);
+        const s = 0.5 + Math.random() * 0.8;
         shard.scale.set(s, s, s);
         shard.position.set(
-          worldPos.x + (Math.random() - 0.5) * 0.35,
-          0.35 + Math.random() * 0.85,
-          worldPos.z + (Math.random() - 0.5) * 0.35
+          worldPos.x + (Math.random() - 0.5) * 0.4,
+          0.35 + Math.random() * 0.95,
+          worldPos.z + (Math.random() - 0.5) * 0.4
         );
         shard.castShadow = true;
         scene.add(shard);
         const ang = Math.random() * Math.PI * 2;
-        const spd = 1.6 + Math.random() * 3.4;
+        const spd = 2.2 + Math.random() * 4.2;
         eng.activeFragments.push({
           mesh: shard,
-          vel: new THREE.Vector3(Math.cos(ang) * spd, 2.5 + Math.random() * 4, Math.sin(ang) * spd),
-          rotVel: new THREE.Vector3((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10),
+          vel: new THREE.Vector3(Math.cos(ang) * spd, 3.2 + Math.random() * 5.0, Math.sin(ang) * spd),
+          rotVel: new THREE.Vector3((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14),
           life: 1.0
         });
       }
-      eng.screenShake = 0.32;
+
+      // 2. High-Speed Arcane Burst Sparks
+      const sparkGeo = new THREE.DodecahedronGeometry(0.045, 0);
+      for (let j = 0; j < 22; j++) {
+        const spark = new THREE.Mesh(sparkGeo, sparkMat);
+        spark.position.set(worldPos.x, 0.45, worldPos.z);
+        scene.add(spark);
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 3.5 + Math.random() * 5.5;
+        eng.activeFragments.push({
+          mesh: spark,
+          vel: new THREE.Vector3(Math.cos(ang) * spd, 4.0 + Math.random() * 6.0, Math.sin(ang) * spd),
+          rotVel: new THREE.Vector3((Math.random() - 0.5) * 20, (Math.random() - 0.5) * 20, (Math.random() - 0.5) * 20),
+          life: 0.75
+        });
+      }
+
+      // 3. Shockwave & Flash
+      spawnShockwave(worldPos, sparkColor);
+      if (eng.impactFlashLight) {
+        eng.impactFlashLight.position.set(worldPos.x, 1.2, worldPos.z);
+        eng.impactFlashLight.color.setHex(sparkColor);
+        eng.impactFlashLight.intensity = 7.5;
+      }
+      eng.screenShake = 0.52;
+    }
+
+    // Ethereal Soul Ascension Animation (Soul floats up and dissolves to invisible with theme sparkles)
+    eng.activeSouls = [];
+    function spawnSoulAscension(worldPos, victimColor) {
+      const soulGroup = new THREE.Group();
+      soulGroup.position.set(worldPos.x, 0.45, worldPos.z);
+      scene.add(soulGroup);
+
+      const activeThemeKey = eng.activeThemeKey || royalTheme || 'sanctum';
+
+      // Determine radiant ethereal theme soul & sparkle colors
+      let soulColorHex = victimColor === 'w' ? 0xfef08a : 0xd8b4fe; // Celestial Gold / Astral Violet
+      let sparkleColorHex = victimColor === 'w' ? 0xfde047 : 0xa855f7;
+      if (activeThemeKey === 'glacial') {
+        soulColorHex = 0x7dd3fc; // Glacial cyan frost-flame
+        sparkleColorHex = 0xe0f2fe;
+      } else if (activeThemeKey === 'volcano') {
+        soulColorHex = 0xf97316; // Molten ember spirit
+        sparkleColorHex = 0xfef08a;
+      } else if (activeThemeKey === 'cyber') {
+        soulColorHex = 0x22d3ee; // Neon data soul
+        sparkleColorHex = 0x4ade80;
+      } else if (activeThemeKey === 'sapphire') {
+        soulColorHex = 0x60a5fa; // Sapphire celestial light
+        sparkleColorHex = 0xbfdbfe;
+      } else if (activeThemeKey === 'emerald') {
+        soulColorHex = 0x34d399; // Emerald spirit
+        sparkleColorHex = 0xa7f3d0;
+      }
+
+      const soulMats = [];
+
+      // 1. Ethereal Soul Spirit Core (translucent glowing spirit flame)
+      const coreMat = new THREE.MeshBasicMaterial({
+        color: soulColorHex,
+        transparent: true,
+        opacity: 0.85,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      coreMat.userData = { baseOpacity: 0.85 };
+      soulMats.push(coreMat);
+
+      const coreMesh = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 16), coreMat);
+      coreMesh.scale.set(0.85, 1.4, 0.85); // Elongated ethereal flame shape
+      soulGroup.add(coreMesh);
+
+      // Inner brilliant white spirit spark
+      const innerMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.95,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      innerMat.userData = { baseOpacity: 0.95 };
+      soulMats.push(innerMat);
+      const innerMesh = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 12), innerMat);
+      innerMesh.scale.set(0.85, 1.35, 0.85);
+      soulGroup.add(innerMesh);
+
+      // 2. Ethereal Soul Halo Ring (Spiraling celestial halo)
+      const haloMat = new THREE.MeshBasicMaterial({
+        color: sparkleColorHex,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.75,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      haloMat.userData = { baseOpacity: 0.75 };
+      soulMats.push(haloMat);
+      const haloMesh = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.36, 24), haloMat);
+      haloMesh.rotation.x = Math.PI / 2.3;
+      soulGroup.add(haloMesh);
+
+      // 3. Swirling Ascending Light Sparkles (Theme sparkles ascending with the soul)
+      const sparkles = [];
+      const sparkGeo = new THREE.OctahedronGeometry(0.042, 0);
+      const sparkMat = new THREE.MeshBasicMaterial({
+        color: sparkleColorHex,
+        transparent: true,
+        opacity: 0.92,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      sparkMat.userData = { baseOpacity: 0.92 };
+      soulMats.push(sparkMat);
+
+      for (let s = 0; s < 32; s++) {
+        const sparkMesh = new THREE.Mesh(sparkGeo, sparkMat);
+        const radius = 0.16 + Math.random() * 0.42;
+        const angle = Math.random() * Math.PI * 2;
+        const rotSpeed = (Math.random() > 0.5 ? 1 : -1) * (2.8 + Math.random() * 4.2);
+        const riseOffset = (Math.random() - 0.5) * 0.45;
+        const riseSpeed = 0.45 + Math.random() * 0.85;
+        const baseScale = 0.65 + Math.random() * 0.75;
+        sparkMesh.scale.setScalar(baseScale);
+        sparkMesh.position.set(Math.cos(angle) * radius, riseOffset, Math.sin(angle) * radius);
+        soulGroup.add(sparkMesh);
+        sparkles.push({
+          mesh: sparkMesh,
+          radius,
+          angle,
+          rotSpeed,
+          riseOffset,
+          riseSpeed,
+          baseScale
+        });
+      }
+
+      // 4. Soft Ascending Glow Light
+      const soulLight = new THREE.PointLight(soulColorHex, 2.8, 4.5, 2);
+      soulGroup.add(soulLight);
+
+      eng.activeSouls.push({
+        group: soulGroup,
+        startY: 0.45,
+        startX: worldPos.x,
+        startZ: worldPos.z,
+        progress: 0,
+        duration: 1.85, // 1.85 seconds smooth celestial ascension
+        materials: soulMats,
+        sparkles,
+        haloMesh,
+        coreMesh,
+        soulLight
+      });
     }
 
     eng.executeMove3D = (moveObj, onDone) => {
@@ -2623,20 +3168,28 @@ export default function App() {
         const now = performance.now();
         const t = Math.min((now - a.startTime) / a.duration, 1);
         const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-        a.attacker.position.x = THREE.MathUtils.lerp(a.startPos.x, a.endPos.x, ease);
-        a.attacker.position.z = THREE.MathUtils.lerp(a.startPos.z, a.endPos.z, ease);
-        a.attacker.position.y = Math.sin(t * Math.PI) * (a.isKnight ? 1.4 : a.isCapture ? 0.55 : 0.15);
+        if (a.isCapture) {
+          const lunge = Math.sin(t * Math.PI);
+          a.attacker.rotation.x = (a.moveObj.color === 'w' ? -1 : 1) * lunge * 0.42;
+          a.attacker.position.y = lunge * 0.75;
+        } else {
+          a.attacker.rotation.x = 0;
+          a.attacker.position.y = Math.sin(t * Math.PI) * (a.isKnight ? 1.4 : 0.18);
+        }
 
-        if (a.isCapture && t >= 0.72 && !a.shattered) {
+        if (a.isCapture && t >= 0.68 && !a.shattered) {
           a.shattered = true;
           audioCtrl.playShatter();
           if (a.target) {
-            spawnShatter(a.endPos, a.victimColor);
+            spawnShatter(a.endPos, a.victimColor, a.moveObj.color);
+            spawnSoulAscension(a.endPos, a.victimColor);
             piecesGroup.remove(a.target);
           }
         }
 
         if (t >= 1) {
+          a.attacker.rotation.x = 0;
+          a.attacker.rotation.z = 0;
           a.attacker.position.set(a.endPos.x, 0, a.endPos.z);
           eng.pieceMeshes[a.moveObj.to] = a.attacker;
           delete eng.pieceMeshes[a.moveObj.from];
@@ -2677,6 +3230,83 @@ export default function App() {
           scene.remove(f.mesh);
           eng.activeFragments.splice(i, 1);
         }
+      }
+
+      // Animate Arcane Shockwaves (Gallery Image 2)
+      if (eng.activeShockwaves) {
+        for (let i = eng.activeShockwaves.length - 1; i >= 0; i--) {
+          const sw = eng.activeShockwaves[i];
+          sw.life -= dt * 2.4;
+          sw.scale += dt * 5.2;
+          sw.mesh.scale.set(sw.scale, sw.scale, sw.scale);
+          sw.mesh.material.opacity = Math.max(0, sw.life);
+          if (sw.life <= 0) {
+            scene.remove(sw.mesh);
+            eng.activeShockwaves.splice(i, 1);
+          }
+        }
+      }
+
+      // Animate Ethereal Soul Ascensions (Soul floating up and becoming invisible with theme light sparkles)
+      if (eng.activeSouls) {
+        for (let i = eng.activeSouls.length - 1; i >= 0; i--) {
+          const s = eng.activeSouls[i];
+          s.progress += dt / s.duration;
+          const p = s.progress;
+          if (p >= 1) {
+            scene.remove(s.group);
+            eng.activeSouls.splice(i, 1);
+            continue;
+          }
+
+          // Celestial ascension floating gently up into the heavens
+          const riseY = s.startY + Math.pow(p, 0.82) * 3.6;
+          s.group.position.y = riseY;
+          s.group.position.x = s.startX + Math.sin(p * Math.PI * 3.5) * 0.12;
+          s.group.position.z = s.startZ + Math.cos(p * Math.PI * 3.5) * 0.12;
+
+          // Rotation & gentle spirit pulse of core & halo
+          if (s.coreMesh) {
+            s.coreMesh.rotation.y += dt * 3.2;
+            const pulse = 1 + Math.sin(p * Math.PI * 6) * 0.18;
+            s.coreMesh.scale.set(0.85 * pulse, 1.4 * pulse, 0.85 * pulse);
+          }
+          if (s.haloMesh) {
+            s.haloMesh.rotation.z += dt * 4.0;
+            s.haloMesh.scale.setScalar(1 + p * 1.4);
+          }
+
+          // Light fade
+          if (s.soulLight) {
+            s.soulLight.intensity = Math.max(0, 2.8 * (1 - p));
+          }
+
+          // Smoothly dissolve to completely invisible
+          const alpha = Math.max(0, 1 - Math.pow(p, 1.3));
+          s.materials.forEach(mat => {
+            mat.opacity = alpha * (mat.userData.baseOpacity || 1);
+          });
+
+          // Swirling light sparkles orbiting and ascending with the soul
+          if (s.sparkles) {
+            s.sparkles.forEach(sp => {
+              sp.angle += sp.rotSpeed * dt;
+              sp.riseOffset += sp.riseSpeed * dt;
+              const rad = sp.radius * (1 + p * 1.2);
+              sp.mesh.position.x = Math.cos(sp.angle) * rad;
+              sp.mesh.position.z = Math.sin(sp.angle) * rad;
+              sp.mesh.position.y = sp.riseOffset;
+              sp.mesh.scale.setScalar(Math.max(0.01, (1 - p * 0.9) * sp.baseScale));
+              sp.mesh.rotation.x += dt * 4;
+              sp.mesh.rotation.y += dt * 5;
+            });
+          }
+        }
+      }
+
+      // Smooth Decay for Combat Flash Light
+      if (eng.impactFlashLight && eng.impactFlashLight.intensity > 0.05) {
+        eng.impactFlashLight.intensity *= Math.max(0, 1 - dt * 6.5);
       }
 
       const posAttr = emberGeo.attributes.position;
@@ -2798,26 +3428,55 @@ export default function App() {
         }
         if (jungleCenterLight) jungleCenterLight.intensity = 2.4 + Math.sin(elapsed * 4.2) * 0.55;
       } else if (glacialGroup && glacialGroup.visible) {
-        // Glacial Summit Animations: Shimmering Aurora & Crystalline Frost-Fire
-        if (auroraRibbon) auroraRibbon.rotation.z += dt * 0.08;
+        // Glacial Summit Animations: Living Aurora Borealis, Spinning Spires & Snow Flurries
+        if (Array.isArray(auroraRibbons)) {
+          auroraRibbons.forEach((ribbon, rIdx) => {
+            ribbon.rotation.z = Math.sin(elapsed * 0.75 + rIdx * 1.4) * 0.14;
+            ribbon.rotation.x = (Math.PI / 3.2) + Math.cos(elapsed * 0.55 + rIdx) * 0.09;
+          });
+        } else if (auroraRibbon) {
+          auroraRibbon.rotation.z += dt * 0.08;
+        }
         if (Array.isArray(iceSpires)) {
           iceSpires.forEach((sp) => {
             if (sp) sp.rotation.y += dt * 0.15;
           });
+        }
+        if (snowGeo && snowGeo.attributes && snowGeo.attributes.position) {
+          const sPos = snowGeo.attributes.position;
+          for (let s = 0; s < snowCount; s++) {
+            let sy = sPos.getY(s) - dt * 2.2;
+            if (sy < 0.2) sy = 16.0;
+            sPos.setY(s, sy);
+          }
+          sPos.needsUpdate = true;
         }
         const time = elapsed * 3.2;
         if (Array.isArray(glacialBraziers)) {
           glacialBraziers.forEach(b => {
             if (b && b.light && b.flame && b.flame.scale) {
               const flick = Math.sin(time * 8.5 + (b.idx || 0) * 1.8) * 0.3;
-              b.light.intensity = 2.5 + flick;
+              b.light.intensity = 2.8 + flick;
               b.flame.scale.set(1 + flick * 0.18, 1 + flick * 0.3, 1 + flick * 0.18);
             }
           });
         }
-        if (glacialCenterLight) glacialCenterLight.intensity = 2.4 + Math.sin(elapsed * 2.8) * 0.45;
+        if (glacialCenterLight) glacialCenterLight.intensity = 2.8 + Math.sin(elapsed * 2.8) * 0.5;
       } else if (volcanoGroup && volcanoGroup.visible) {
-        // Inferno Bastion Animations: Roaring Molten Magma Cauldrons & Violent Chasm Flame
+        // Inferno Bastion Animations: Caldera Volcanic Smoke, Boiling Lava Lake & Molten Cauldrons
+        if (smokeGeo && smokeGeo.attributes && smokeGeo.attributes.position) {
+          const smPos = smokeGeo.attributes.position;
+          for (let sm = 0; sm < smokeCount; sm++) {
+            let smy = smPos.getY(sm) + dt * 2.8;
+            if (smy > 34.0) smy = 22.5;
+            smPos.setY(sm, smy);
+          }
+          smokeGeo.attributes.position.needsUpdate = true;
+        }
+        if (calderaLake) calderaLake.scale.setScalar(1 + Math.sin(elapsed * 3.5) * 0.04);
+        if (calderaLight) calderaLight.intensity = 4.5 + Math.sin(elapsed * 5.0) * 1.2;
+        if (lavaSeaMat) lavaSeaMat.color.setHex(Math.sin(elapsed * 2) > 0 ? 0xff2800 : 0xff3b00);
+
         const time = elapsed * 4.2;
         if (Array.isArray(volcanoBraziers)) {
           volcanoBraziers.forEach(b => {
@@ -2828,9 +3487,20 @@ export default function App() {
             }
           });
         }
-        if (volcanoCenterLight) volcanoCenterLight.intensity = 3.0 + Math.sin(elapsed * 6) * 0.8 + (Math.random() - 0.5) * 0.3;
+        if (volcanoCenterLight) volcanoCenterLight.intensity = 3.4 + Math.sin(elapsed * 6) * 0.8 + (Math.random() - 0.5) * 0.3;
       } else if (cyberGroup && cyberGroup.visible) {
         // Cyber War-Grid Animations: Laser Grid Beams & Ion Plasma Thrusters
+        if (cyberHoloCube) {
+          cyberHoloCube.rotation.x += dt * 0.45;
+          cyberHoloCube.rotation.y += dt * 0.65;
+        }
+        if (Array.isArray(cyberCeilingLasers)) {
+          cyberCeilingLasers.forEach((l, idx) => {
+            if (l && l.material) {
+              l.material.opacity = 0.5 + Math.sin(elapsed * 4 + idx * 1.2) * 0.35;
+            }
+          });
+        }
         if (Array.isArray(cyberLaserBeams)) {
           cyberLaserBeams.forEach((bm, idx) => {
             if (bm && bm.material) {
@@ -2849,6 +3519,29 @@ export default function App() {
           });
         }
         if (cyberCenterLight) cyberCenterLight.intensity = 2.5 + Math.sin(elapsed * 8) * 0.6;
+      }
+
+      // Dynamic Looping Board Perimeter Light (Continuously traveling around board edges in a loop)
+      if (eng.boardLoopLight && eng.boardLoopGlow) {
+        const loopSpeed = 5.2;
+        const perimeter = 33.6; // 4 sides of 8.4
+        const dist = (elapsed * loopSpeed) % perimeter;
+        let lx = -4.2, lz = -4.2;
+        if (dist < 8.4) {
+          lx = -4.2 + dist;
+          lz = -4.2;
+        } else if (dist < 16.8) {
+          lx = 4.2;
+          lz = -4.2 + (dist - 8.4);
+        } else if (dist < 25.2) {
+          lx = 4.2 - (dist - 16.8);
+          lz = 4.2;
+        } else {
+          lx = -4.2;
+          lz = 4.2 - (dist - 25.2);
+        }
+        eng.boardLoopLight.position.set(lx, 0.22, lz);
+        eng.boardLoopGlow.position.set(lx, 0.12, lz);
       }
 
       if (eng.autoOrbit) eng.targetTheta += dt * 0.22;
@@ -2879,10 +3572,17 @@ export default function App() {
       const w = container.clientWidth;
       const h = container.clientHeight;
       camera.aspect = w / h;
-      camera.fov = w < 640 ? 54 : w < 1024 ? 46 : 42;
+      const isTouch = typeof window !== 'undefined' && (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window) || navigator.maxTouchPoints > 0);
+      const isLandscape = (isTouch || w <= 1180) && w > h;
+
       if (currentScreenRef.current !== 'game' && w >= 1024) {
+        camera.fov = 42;
         camera.setViewOffset(w, h, -Math.round(w * 0.15), 0, w, h);
+      } else if (currentScreenRef.current === 'game' && isLandscape) {
+        camera.fov = h < 480 ? 52 : 46;
+        camera.setViewOffset(w, h, Math.round(w * 0.20), 0, w, h);
       } else {
+        camera.fov = w < 640 ? 54 : w < 1024 ? 46 : 42;
         camera.clearViewOffset();
       }
       camera.updateProjectionMatrix();
@@ -2927,7 +3627,20 @@ export default function App() {
     };
 
     if (workerRef.current) {
+      let resolved = false;
+      const workerTimeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          workerRef.current?.removeEventListener('message', handleWorkerMessage);
+          const fallbackMove = findBestAiMove(eng.chess, aiDifficulty, aiColor);
+          onAiMoveReady(fallbackMove);
+        }
+      }, 5500);
+
       const handleWorkerMessage = (e) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(workerTimeout);
         workerRef.current.removeEventListener('message', handleWorkerMessage);
         if (e.data && e.data.success && e.data.move) {
           onAiMoveReady(e.data.move);
@@ -3008,11 +3721,18 @@ export default function App() {
   }, [activeFriendOpponent, gameMode, recordCompletedMatchToDB, royalTheme, syncHudFromChess, triggerAiTurnIfNeeded]);
 
   // Pointer & Wheel Handlers for 3D Canvas
-  const pointerRef = useRef({ down: false, startX: 0, startY: 0, prevX: 0, prevY: 0 });
+  const pointerRef = useRef({ down: false, startX: 0, startY: 0, prevX: 0, prevY: 0, pointerType: 'mouse' });
 
   const handlePointerDown = (e) => {
     if (currentScreen !== 'game') return;
-    pointerRef.current = { down: true, startX: e.clientX, startY: e.clientY, prevX: e.clientX, prevY: e.clientY };
+    pointerRef.current = {
+      down: true,
+      startX: e.clientX,
+      startY: e.clientY,
+      prevX: e.clientX,
+      prevY: e.clientY,
+      pointerType: e.pointerType || (e.touches ? 'touch' : 'mouse')
+    };
   };
 
   const handlePointerMove = (e) => {
@@ -3023,11 +3743,13 @@ export default function App() {
     pointerRef.current.prevX = e.clientX;
     pointerRef.current.prevY = e.clientY;
 
-    if (Math.hypot(e.clientX - pointerRef.current.startX, e.clientY - pointerRef.current.startY) > 6) {
+    const isTouch = pointerRef.current.pointerType === 'touch' || ('ontouchstart' in window);
+    const dragThreshold = isTouch ? 14 : 6;
+    if (Math.hypot(e.clientX - pointerRef.current.startX, e.clientY - pointerRef.current.startY) > dragThreshold) {
       const eng = engineRef.current;
       eng.autoOrbit = false;
-      eng.targetTheta -= dx * 0.0075;
-      eng.targetPhi = Math.max(0.22, Math.min(1.38, eng.targetPhi - dy * 0.0065));
+      eng.targetTheta -= dx * (isTouch ? 0.009 : 0.0075);
+      eng.targetPhi = Math.max(0.22, Math.min(1.38, eng.targetPhi - dy * (isTouch ? 0.008 : 0.0065)));
     }
   };
 
@@ -3035,8 +3757,11 @@ export default function App() {
     if (currentScreen !== 'game') return;
     if (!pointerRef.current.down) return;
     pointerRef.current.down = false;
+    const isTouch = pointerRef.current.pointerType === 'touch' || ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+    const tapThreshold = isTouch ? 22 : 8;
     const dist = Math.hypot(e.clientX - pointerRef.current.startX, e.clientY - pointerRef.current.startY);
-    if (dist < 8 && mountRef.current) {
+
+    if (dist < tapThreshold && mountRef.current) {
       const eng = engineRef.current;
       const rect = mountRef.current.getBoundingClientRect();
       const mouse = new THREE.Vector2(
@@ -3046,19 +3771,24 @@ export default function App() {
       const raycaster = new THREE.Raycaster();
       raycaster.setFromCamera(mouse, eng.camera);
 
-      const tileHits = raycaster.intersectObjects(Object.values(eng.squareMeshes), false);
-      if (tileHits.length > 0 && tileHits[0].object.userData.square) {
-        handleSquareTap(tileHits[0].object.userData.square);
-        return;
-      }
-
+      // 1. Raycast chess piece meshes first (direct tap on 3D piece)
       if (eng.piecesGroup) {
         const pieceHits = raycaster.intersectObjects(eng.piecesGroup.children, true);
         if (pieceHits.length > 0) {
           let obj = pieceHits[0].object;
           while (obj && !obj.userData.square && obj.parent) obj = obj.parent;
-          if (obj && obj.userData.square) handleSquareTap(obj.userData.square);
+          if (obj && obj.userData.square) {
+            handleSquareTap(obj.userData.square);
+            return;
+          }
         }
+      }
+
+      // 2. Raycast floor square tiles (tap on move destination or empty tile)
+      const tileHits = raycaster.intersectObjects(Object.values(eng.squareMeshes), false);
+      if (tileHits.length > 0 && tileHits[0].object.userData.square) {
+        handleSquareTap(tileHits[0].object.userData.square);
+        return;
       }
     }
   };
@@ -3780,7 +4510,7 @@ export default function App() {
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onWheel={handleWheel}
-        className={`fixed inset-0 w-full h-full z-0 ${currentScreen === 'game' ? 'cursor-grab active:cursor-grabbing pointer-events-auto' : 'pointer-events-none cursor-default'}`}
+        className={`fixed inset-0 w-full h-full z-0 touch-none ${currentScreen === 'game' ? 'cursor-grab active:cursor-grabbing pointer-events-auto' : 'pointer-events-none cursor-default'}`}
       />
 
       {/* 1. Instant Main Menu (Clean, 1-Click Play over 3D Cathedral Board) */}
@@ -3826,8 +4556,12 @@ export default function App() {
           {/* Top Floating Navigation Bar (Active War HUD vs Full Setup Header) */}
           {isGameActive ? (
             /* Step 2 Minimalist Active War Bar: ONLY Camera Presets, Notice Board, Offer Draw, Resign, Grand Hall (Confirm) & Volume */
-            <header className="fixed top-2 sm:top-4 left-1/2 -translate-x-1/2 z-20 w-[96%] max-w-4xl pointer-events-none transition-all duration-300">
-              <div className="bg-[#14101e]/90 backdrop-blur-xl border border-amber-400/30 shadow-[0_8px_32px_rgba(0,0,0,0.7)] rounded-full px-3 py-1.5 flex items-center justify-between gap-2 pointer-events-auto">
+            <header className={`fixed top-1.5 sm:top-3 z-20 pointer-events-none transition-all duration-300 ${
+              isMobileLandscape && !noticeBoardMinimizedInLandscape
+                ? 'left-2 max-w-[55%] w-auto'
+                : 'left-1/2 -translate-x-1/2 w-[96%] max-w-4xl'
+            }`}>
+              <div className="bg-[#14101e]/90 backdrop-blur-xl border border-amber-400/30 shadow-[0_8px_32px_rgba(0,0,0,0.7)] rounded-full px-2.5 sm:px-3 py-1 sm:py-1.5 flex items-center justify-between gap-1.5 sm:gap-2 pointer-events-auto">
                 {/* Camera Presets: White, Black, Overhead, Orbit */}
                 <div className="flex items-center gap-1 bg-black/40 p-1 rounded-full border border-white/10">
                   {CAMERA_PRESETS.map(cam => (
@@ -3967,18 +4701,23 @@ export default function App() {
             </header>
           ) : (
             /* Full Setup Navigation Bar (Pre-Match / Game Over) */
-            <header className="fixed top-2 sm:top-4 left-1/2 -translate-x-1/2 z-20 w-[97%] max-w-7xl pointer-events-none transition-all duration-300">
-            <div className="bg-[#161320]/80 backdrop-blur-xl border border-white/15 shadow-2xl rounded-2xl sm:rounded-full px-2.5 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 pointer-events-auto">
+            <header className={`fixed top-1.5 sm:top-3 z-20 pointer-events-none transition-all duration-300 ${
+              isMobileLandscape && !noticeBoardMinimizedInLandscape
+                ? 'left-2 max-w-[55%] w-auto'
+                : 'left-1/2 -translate-x-1/2 w-[97%] max-w-7xl'
+            }`}>
+            <div className="bg-[#161320]/85 backdrop-blur-xl border border-white/15 shadow-2xl rounded-2xl sm:rounded-full px-2.5 sm:px-4 py-1.5 sm:py-2 flex items-center justify-between gap-1 sm:gap-2 pointer-events-auto overflow-x-auto no-scrollbar">
               
               {/* Prominent Back to Home Button */}
-              <div className="flex items-center gap-2 pl-1 pr-2.5 border-r border-white/10">
+              <div className="flex items-center gap-1.5 sm:gap-2 pl-0.5 sm:pl-1 pr-1.5 sm:pr-2.5 border-r border-white/10 shrink-0">
                 <button
                   onClick={handleReturnToLobby}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-400/20 hover:bg-amber-400/35 border border-amber-400/60 text-amber-200 text-xs font-extrabold transition-all shadow-md origin-spring cursor-pointer"
+                  className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-amber-400/20 hover:bg-amber-400/35 border border-amber-400/60 text-amber-200 text-xs font-extrabold transition-all shadow-md origin-spring cursor-pointer"
                   title="Back to Home Screen"
                 >
-                  <ArrowLeft className="w-4 h-4 text-amber-300 stroke-[2.5]" />
-                  <span>Back to Home</span>
+                  <ArrowLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-300 stroke-[2.5]" />
+                  <span className="hidden sm:inline">Back to Home</span>
+                  <span className="sm:hidden">Home</span>
                 </button>
                 <div className="hidden lg:block">
                   <h1 className="font-serif text-xs sm:text-sm font-bold tracking-wider text-white leading-none">
@@ -3990,9 +4729,9 @@ export default function App() {
                 </div>
               </div>
 
-          {/* Game Mode Pills with Lock when Match in Progress */}
+          {/* Game Mode Pills with Lock when Match in Progress (Desktop wide view) */}
           <div
-            className="flex items-center gap-1 bg-black/35 p-1 rounded-full border border-white/10 origin-spring"
+            className="hidden xl:flex items-center gap-1 bg-black/35 p-1 rounded-full border border-white/10 origin-spring shrink-0"
             title={isGameActive ? "Match in progress! Reset board to switch modes." : "Choose Game Mode"}
           >
             <button
@@ -4023,9 +4762,9 @@ export default function App() {
             </button>
           </div>
 
-          {/* AI Difficulty & Side Selector (When vs AI mode) */}
+          {/* AI Difficulty & Side Selector (Desktop wide view) */}
           {gameMode === 'ai' && (
-            <div className="flex items-center gap-1.5 bg-black/35 p-1 rounded-full border border-amber-400/30">
+            <div className="hidden lg:flex items-center gap-1.5 bg-black/35 p-1 rounded-full border border-amber-400/30 shrink-0">
               {/* Play Side (White vs Black) */}
               <div className="flex items-center bg-black/40 p-0.5 rounded-full border border-white/10 text-xs">
                 <button
@@ -4080,8 +4819,8 @@ export default function App() {
             </div>
           )}
 
-          {/* Match Time Control Selector */}
-          <div className="flex items-center gap-1 bg-black/35 p-1 rounded-full border border-amber-400/30 text-xs">
+          {/* Match Time Control Selector (Desktop wide view) */}
+          <div className="hidden xl:flex items-center gap-1 bg-black/35 p-1 rounded-full border border-amber-400/30 text-xs shrink-0">
             <span className="hidden sm:inline text-[11px] font-bold text-amber-300 uppercase tracking-wider pl-1.5 pr-0.5">
               Timer:
             </span>
@@ -4334,6 +5073,7 @@ export default function App() {
             >
               <ScrollText className="w-3.5 h-3.5 text-amber-300" />
               <span className="hidden md:inline">Notice Board</span>
+              <span className="md:hidden">2D</span>
             </button>
 
             {/* Reset Game Button */}
@@ -4520,6 +5260,7 @@ export default function App() {
       )}
 
       {/* Bottom Telemetry Dock: Turn Indicator, Clocks, Move History & Captured Pieces */}
+      {(!isMobileLandscape || noticeBoardMinimizedInLandscape) && (
       <footer className="fixed bottom-2 sm:bottom-4 left-1/2 -translate-x-1/2 z-20 w-[97%] max-w-5xl pointer-events-none transition-all duration-300">
         <div className="bg-[#161320]/85 backdrop-blur-xl border border-white/15 shadow-2xl rounded-2xl sm:rounded-3xl px-3.5 sm:px-5 py-2 flex flex-col sm:flex-row items-center justify-between gap-2 pointer-events-auto">
           
@@ -4619,6 +5360,7 @@ export default function App() {
           </div>
         </div>
       </footer>
+      )}
 
       {/* Floating Check Alert during active match */}
       {isGameActive && inCheck && !gameOverText && (
@@ -4641,27 +5383,77 @@ export default function App() {
       )}
 
       {/* Tactical Notice Board (Alternative Move Control Center Beside the Board) */}
-      {noticeBoardOpen ? (
-        <aside className="fixed right-2 sm:right-5 top-20 sm:top-24 z-20 w-72 sm:w-84 max-h-[calc(100vh-9.5rem)] bg-[#14101e]/92 backdrop-blur-xl border border-amber-500/30 rounded-2xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto">
-          {/* Notice Board Top Plaque */}
-          <div className="px-3 py-2 bg-gradient-to-r from-amber-950/70 via-purple-950/60 to-black/80 border-b border-amber-500/25 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <ScrollText className="w-4 h-4 text-amber-300" />
-              <div>
-                <h3 className="font-serif text-xs font-bold text-amber-100 tracking-wider flex items-center gap-1.5">
-                  COMMAND NOTICE BOARD
-                  <span className="text-[9px] font-sans px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 border border-amber-400/30">ALT MOVE</span>
-                </h3>
-              </div>
-            </div>
-            <button
+      {(isMobileLandscape ? !noticeBoardMinimizedInLandscape : noticeBoardOpen) ? (
+        <>
+          {/* Mobile backdrop to easily close when tapping outside in portrait mode */}
+          {!isMobileLandscape && (
+            <div
+              className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm sm:hidden pointer-events-auto"
               onClick={() => { setNoticeBoardOpen(false); audioCtrl.playSelect(); }}
-              className="p-1 rounded-md hover:bg-white/10 text-gray-400 hover:text-white transition"
-              title="Minimize Notice Board"
-            >
-              <ChevronDown className="w-4 h-4" />
-            </button>
-          </div>
+            />
+          )}
+          <aside className={
+            isMobileLandscape
+              ? "fixed right-1 sm:right-2 top-1 sm:top-2 bottom-1 sm:bottom-2 z-20 w-[43%] max-w-[420px] bg-[#14101e]/96 backdrop-blur-xl border border-amber-500/35 rounded-2xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto animate-in slide-in-from-right-4 duration-200"
+              : "fixed inset-x-2 bottom-3 max-h-[82vh] sm:inset-x-auto sm:bottom-auto sm:right-5 sm:top-24 z-40 sm:z-20 w-auto sm:w-84 sm:max-h-[calc(100vh-9.5rem)] bg-[#14101e]/95 backdrop-blur-xl border border-amber-500/35 rounded-2xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto"
+          }>
+            {/* Notice Board Top Plaque */}
+            <div className="px-3 py-1.5 sm:py-2 bg-gradient-to-r from-amber-950/70 via-purple-950/60 to-black/80 border-b border-amber-500/25 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <ScrollText className="w-4 h-4 text-amber-300" />
+                <div>
+                  <h3 className="font-serif text-xs font-bold text-amber-100 tracking-wider flex items-center gap-1.5">
+                    COMMAND NOTICE BOARD
+                    <span className="text-[9px] font-sans px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 border border-amber-400/30">ALT MOVE</span>
+                  </h3>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  if (isMobileLandscape) {
+                    setNoticeBoardMinimizedInLandscape(true);
+                  } else {
+                    setNoticeBoardOpen(false);
+                  }
+                  audioCtrl.playSelect();
+                }}
+                className="p-1 rounded-md hover:bg-white/10 text-gray-400 hover:text-white transition cursor-pointer"
+                title={isMobileLandscape ? "Minimize Notice Board (Full 3D)" : "Minimize Notice Board"}
+              >
+                {isMobileLandscape ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+            </div>
+
+            {/* In Landscape Wide Mode: Integrated Clocks, Active Turn & Captured Pieces */}
+            {isMobileLandscape && (
+              <div className="px-3 py-1.5 bg-black/40 border-b border-white/5 flex items-center justify-between text-xs shrink-0">
+                <div className="flex items-center gap-1.5">
+                  <div className={`w-2.5 h-2.5 rounded-full ${turnColor === 'w' ? 'bg-amber-300 shadow-[0_0_8px_#fde047]' : 'bg-purple-400 shadow-[0_0_8px_#c084fc]'}`} />
+                  <span className="font-bold text-white text-[11px]">
+                    {turnColor === 'w' ? 'White' : (gameMode === 'ai' ? 'Obsidian AI' : 'Black')}
+                  </span>
+                  {(inCheck || gameOverText) && (
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-red-500/30 text-red-300 font-bold uppercase animate-pulse">
+                      {gameOverText || 'CHECK'}
+                    </span>
+                  )}
+                </div>
+
+                {isTimedMatch ? (
+                  <div className="flex items-center gap-2 font-mono text-[11px]">
+                    <span className={turnColor === 'w' ? 'text-amber-300 font-bold' : 'text-gray-400'}>
+                      ♔ {Math.floor(whiteClockSec / 60)}:{(whiteClockSec % 60).toString().padStart(2, '0')}
+                    </span>
+                    <span className="text-gray-600">|</span>
+                    <span className={turnColor === 'b' ? 'text-purple-300 font-bold' : 'text-gray-400'}>
+                      ♚ {Math.floor(blackClockSec / 60)}:{(blackClockSec % 60).toString().padStart(2, '0')}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-[10px] text-gray-400 font-mono">Untimed</span>
+                )}
+              </div>
+            )}
 
           {/* Tab Selector */}
           <div className="p-2 pb-0 flex gap-1 border-b border-white/5 bg-black/25">
@@ -4856,16 +5648,100 @@ export default function App() {
             </div>
           </div>
         </aside>
+        </>
       ) : (
         /* Minimized Floating Button */
         <button
-          onClick={() => { setNoticeBoardOpen(true); audioCtrl.playSelect(); }}
-          className="fixed right-3 sm:right-6 top-24 sm:top-28 z-20 flex items-center gap-2 px-3 py-2 rounded-full bg-[#161320]/90 backdrop-blur-md border border-amber-400/50 text-amber-200 text-xs font-semibold shadow-2xl hover:bg-purple-950/80 transition"
+          onClick={() => {
+            if (isMobileLandscape) {
+              setNoticeBoardMinimizedInLandscape(false);
+            } else {
+              setNoticeBoardOpen(true);
+            }
+            audioCtrl.playSelect();
+          }}
+          className={
+            isMobileLandscape
+              ? "fixed right-2 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-1 px-2 py-3 rounded-2xl bg-[#161320]/95 backdrop-blur-md border border-amber-400/60 text-amber-200 text-xs font-bold shadow-2xl hover:bg-purple-950/80 transition active:scale-95 cursor-pointer pointer-events-auto"
+              : "fixed right-3 sm:right-6 bottom-16 sm:bottom-auto sm:top-28 z-20 flex items-center gap-2 px-3 py-2 rounded-full bg-[#161320]/90 backdrop-blur-md border border-amber-400/50 text-amber-200 text-xs font-semibold shadow-2xl hover:bg-purple-950/80 transition active:scale-95 cursor-pointer pointer-events-auto"
+          }
           title="Open Tactical Move Notice Board"
         >
           <ScrollText className="w-4 h-4 text-amber-300" />
-          <span>Notice Board (Alt Move)</span>
+          {isMobileLandscape ? (
+            <span className="text-[10px] uppercase font-bold tracking-wider [writing-mode:vertical-lr] rotate-180">Notice Board</span>
+          ) : (
+            <>
+              <span className="hidden xs:inline">Notice Board</span>
+              <span className="xs:hidden">Board</span>
+            </>
+          )}
         </button>
+      )}
+
+      {/* Mobile Portrait "Rotate to Wide View" Cathedral Prompt */}
+      {currentScreen === 'game' && isPortraitOnMobile && !dismissRotatePrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-300 pointer-events-auto">
+          <div className="relative w-full max-w-sm bg-gradient-to-br from-[#1c1236] via-[#120a22] to-[#080512] border-2 border-amber-400/60 rounded-3xl p-6 shadow-[0_20px_70px_rgba(0,0,0,0.95),0_0_50px_rgba(245,158,11,0.25)] text-center text-white flex flex-col items-center ring-1 ring-amber-400/30">
+            {/* Animated Rotating Phone Graphic */}
+            <div className="relative w-20 h-20 mb-3 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full bg-amber-400/10 animate-ping" />
+              <div className="w-16 h-16 rounded-2xl border-2 border-amber-400 flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.5)] animate-bounce">
+                <div className="w-8 h-12 rounded-lg border-2 border-amber-200/80 bg-amber-400/20 flex flex-col items-center justify-between py-1 shadow-inner">
+                  <span className="w-2.5 h-0.5 rounded-full bg-amber-300" />
+                  <span className="text-sm font-serif text-amber-200 leading-none">♔</span>
+                  <span className="w-1.5 h-1.5 rounded-full border border-amber-300" />
+                </div>
+              </div>
+            </div>
+
+            <h3 className="font-serif text-xl font-black text-amber-200 tracking-wide mb-1">
+              Rotate Device to Wide View
+            </h3>
+            <p className="text-xs text-amber-100/80 mb-4 leading-relaxed">
+              Turn your screen horizontally for the optimal battlefield view:
+            </p>
+
+            {/* Feature Highlights */}
+            <div className="w-full bg-black/45 rounded-2xl p-3 mb-5 border border-amber-500/25 flex flex-col gap-2.5 text-left text-xs">
+              <div className="flex items-center gap-2.5 text-amber-300 font-semibold">
+                <span className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_#fbbf24]" />
+                <span>3D Chess Arena on the LEFT</span>
+              </div>
+              <div className="flex items-center gap-2.5 text-purple-300 font-semibold">
+                <span className="w-2 h-2 rounded-full bg-purple-400 shadow-[0_0_8px_#c084fc]" />
+                <span>Command Notice Board on the RIGHT</span>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col gap-2.5 w-full">
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    if (window.screen?.orientation?.lock) {
+                      window.screen.orientation.lock('landscape').catch(() => {});
+                    }
+                  } catch (e) {}
+                  setDismissRotatePrompt(true);
+                }}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 text-black font-extrabold text-xs shadow-lg hover:brightness-110 transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-black animate-spin" />
+                <span>Rotate Screen ↻</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDismissRotatePrompt(true)}
+                className="text-xs text-gray-400 hover:text-white py-1 transition underline cursor-pointer"
+              >
+                Continue in Portrait
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Realm Vault Selection Modal for In-Game / Pre-Match Header */}
