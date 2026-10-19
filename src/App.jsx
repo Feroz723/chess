@@ -2512,7 +2512,9 @@ export default function App() {
     eng.boardLoopGlow = boardLoopGlow;
 
     // 5b. Runic Coordinates on Cathedral Marble Board Frame (Letters A-H & Numbers 1-8)
+    const coordTextureCache = {};
     function createCoordinateTexture(char) {
+      if (coordTextureCache[char]) return coordTextureCache[char];
       const c = document.createElement('canvas');
       c.width = 128;
       c.height = 128;
@@ -2525,7 +2527,9 @@ export default function App() {
       ctx.shadowBlur = 12;
       ctx.fillStyle = '#fde68a';
       ctx.fillText(char, 64, 64);
-      return new THREE.CanvasTexture(c);
+      const tex = new THREE.CanvasTexture(c);
+      coordTextureCache[char] = tex;
+      return tex;
     }
 
     const coordPlaneGeo = new THREE.PlaneGeometry(0.52, 0.52);
@@ -2534,10 +2538,11 @@ export default function App() {
     files.forEach((f, idx) => {
       const letter = f.toUpperCase();
       const x = idx - 3.5;
+      const sharedTex = createCoordinateTexture(letter);
 
       // South edge (facing White)
       const matS = new THREE.MeshBasicMaterial({
-        map: createCoordinateTexture(letter),
+        map: sharedTex,
         transparent: true,
         depthWrite: false
       });
@@ -2548,7 +2553,7 @@ export default function App() {
 
       // North edge (facing Black)
       const matN = new THREE.MeshBasicMaterial({
-        map: createCoordinateTexture(letter),
+        map: sharedTex,
         transparent: true,
         depthWrite: false
       });
@@ -2563,10 +2568,11 @@ export default function App() {
     for (let r = 0; r < 8; r++) {
       const numStr = (r + 1).toString();
       const z = 3.5 - r;
+      const sharedNumTex = createCoordinateTexture(numStr);
 
       // West edge
       const matW = new THREE.MeshBasicMaterial({
-        map: createCoordinateTexture(numStr),
+        map: sharedNumTex,
         transparent: true,
         depthWrite: false
       });
@@ -2577,7 +2583,7 @@ export default function App() {
 
       // East edge
       const matE = new THREE.MeshBasicMaterial({
-        map: createCoordinateTexture(numStr),
+        map: sharedNumTex,
         transparent: true,
         depthWrite: false
       });
@@ -2593,10 +2599,19 @@ export default function App() {
     scene.add(piecesGroup);
     eng.piecesGroup = piecesGroup;
 
+    const latheGeoCache = new Map();
     function createLathe(pts, segs = 24) {
+      const key = `${pts.map(p => `${p[0]},${p[1]}`).join('|')}_${segs}`;
+      if (latheGeoCache.has(key)) return latheGeoCache.get(key);
       const curve = new THREE.SplineCurve(pts.map(([x, y]) => new THREE.Vector2(x, y)));
-      return new THREE.LatheGeometry(curve.getPoints(26), segs);
+      const geo = new THREE.LatheGeometry(curve.getPoints(26), segs);
+      latheGeoCache.set(key, geo);
+      return geo;
     }
+
+    const sharedBaseRuneRingGeo = new THREE.RingGeometry(0.28, 0.40, 24);
+    const sharedCollarGeo = new THREE.TorusGeometry(0.28, 0.022, 12, 26);
+    const sharedFloorHaloGeo = new THREE.RingGeometry(0.22, 0.44, 26);
 
     function buildPieceMesh(type, color) {
       const group = new THREE.Group();
@@ -2613,7 +2628,7 @@ export default function App() {
 
       // Glowing Base Rune Foundation Ring
       const baseRuneRing = new THREE.Mesh(
-        new THREE.RingGeometry(0.28, 0.40, 24),
+        sharedBaseRuneRingGeo,
         new THREE.MeshBasicMaterial({
           color: color === 'w' ? 0xfbbf24 : 0xa855f7,
           side: THREE.DoubleSide,
@@ -2627,7 +2642,7 @@ export default function App() {
       baseRuneRing.position.y = 0.015;
       group.add(baseRuneRing);
 
-      const collar = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.022, 12, 26), accentMat);
+      const collar = new THREE.Mesh(sharedCollarGeo, accentMat);
       collar.rotation.x = Math.PI / 2;
       collar.position.y = 0.21;
       group.add(collar);
@@ -2766,7 +2781,7 @@ export default function App() {
       // =========================================================================
       const auraColor = color === 'w' ? 0xfbbf24 : 0xa855f7;
       const floorHalo = new THREE.Mesh(
-        new THREE.RingGeometry(0.22, 0.44, 26),
+        sharedFloorHaloGeo,
         new THREE.MeshBasicMaterial({
           color: auraColor,
           side: THREE.DoubleSide,
@@ -4292,24 +4307,27 @@ export default function App() {
     const query = friendSearchQuery.trim();
     setSearchLoading(true);
 
+    // Only fetch remote friend search when user actually types a query or is logged in
     const debounceTimer = setTimeout(async () => {
-      try {
-        const token = localStorage.getItem('wizards_jwt_token');
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        const requesterParam = currentUser?.username ? `&requester=${encodeURIComponent(currentUser.username)}` : '';
-        const res = await fetch(`/api/friends/search?q=${encodeURIComponent(query)}${requesterParam}`, { headers });
-        if (res.ok) {
-          const data = await res.json();
-          if (active && data.users) {
-            const list = data.users
-              .filter(u => !currentUser || u.username.toLowerCase() !== currentUser.username.toLowerCase())
-              .slice(0, 10);
-            setFriendSearchResults(list);
-            setSearchLoading(false);
-            return;
+      if (query.length > 0) {
+        try {
+          const token = localStorage.getItem('wizards_jwt_token');
+          const headers = token ? { Authorization: `Bearer ${token}` } : {};
+          const requesterParam = currentUser?.username ? `&requester=${encodeURIComponent(currentUser.username)}` : '';
+          const res = await fetch(`/api/friends/search?q=${encodeURIComponent(query)}${requesterParam}`, { headers });
+          if (res.ok) {
+            const data = await res.json();
+            if (active && data.users) {
+              const list = data.users
+                .filter(u => !currentUser || u.username.toLowerCase() !== currentUser.username.toLowerCase())
+                .slice(0, 10);
+              setFriendSearchResults(list);
+              setSearchLoading(false);
+              return;
+            }
           }
-        }
-      } catch (err) {}
+        } catch (err) {}
+      }
 
       if (active) {
         const qLower = query.toLowerCase();
