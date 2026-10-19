@@ -13,9 +13,53 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f59e0b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M19 21v-8a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v8'/><path d='M5 11V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v7'/><path d='M11 2v3'/><path d='M15 2v3'/><path d='M9 21v-5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v5'/></svg>" />
+    <style>
+      #root-loader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at center, #18122c 0%, #09080d 100%);
+        color: #f59e0b;
+        font-family: 'Cinzel', Georgia, serif;
+        z-index: 999;
+      }
+      .loader-crest {
+        font-size: 3.5rem;
+        margin-bottom: 0.75rem;
+        animation: crestPulse 1.8s ease-in-out infinite alternate;
+        text-shadow: 0 0 25px rgba(245, 158, 11, 0.6);
+      }
+      .loader-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        letter-spacing: 0.25em;
+        text-transform: uppercase;
+        color: #fef08a;
+      }
+      .loader-sub {
+        font-size: 0.75rem;
+        letter-spacing: 0.15em;
+        color: #a855f7;
+        margin-top: 0.35rem;
+      }
+      @keyframes crestPulse {
+        from { transform: scale(0.96); opacity: 0.8; }
+        to { transform: scale(1.04); opacity: 1; }
+      }
+    </style>
+  </head>
   <body class="bg-[#09080d] text-[#f3eff4] overflow-hidden m-0 p-0 select-none">
     <audio id="cathedral-bgm" loop preload="auto" playsinline></audio>
-    <div id="root"></div>
+    <div id="root">
+      <div id="root-loader">
+        <div class="loader-crest">♔</div>
+        <div class="loader-title">Wizard's Chess</div>
+        <div class="loader-sub">Cathedral Sanctum Arena</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
